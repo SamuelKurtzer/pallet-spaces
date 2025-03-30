@@ -32,7 +32,9 @@ Sign up page, collects an email and whether they want to rent out or rent.
 ## Making $$$
 
 Transactions can go through the site, we take a small percentage(1-5%).
+
 Later could also offer insurance and logistics services.
+
 Would also be a great place for targeted ads.
 
 ## Liability
