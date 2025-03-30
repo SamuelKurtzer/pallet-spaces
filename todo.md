@@ -1,0 +1,6 @@
+- [] signup page
+- [] front page
+- [] signup backend
+- [] database managment
+- [] docker for deployment
+- [] example market page (Dummy data)
