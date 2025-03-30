@@ -1,0 +1,22 @@
+{
+  "name": "pallet-spaces",
+  "version": "1.0.0",
+  "description": "App that allows one to loan out their pallet spaces to customers",
+  "main": "frontend/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SamuelKurtzer/pallet-spaces.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/SamuelKurtzer/pallet-spaces/issues"
+  },
+  "homepage": "https://github.com/SamuelKurtzer/pallet-spaces#readme",
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}
