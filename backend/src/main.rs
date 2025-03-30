@@ -27,7 +27,7 @@ async fn init_database() -> Pool<Sqlite>{
 
 fn init_router(state: AppState) -> Router {
     Router::new()
-        .route_service("/", ServeFile::new("./frontend/index.html"))
+        .route_service("/", ServeFile::new("./frontend/htmxform.html"))
         .route("/signup", get(SignupUser::page).post(SignupUser::request))
         .route("/get_users", get(SignupUser::get_person_list))
         .with_state(state)

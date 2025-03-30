@@ -1,6 +1,6 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::State, http::StatusCode, Form, Json};
 use serde::{Deserialize, Serialize};
-use sqlx::{prelude::FromRow, Executor};
+use sqlx::prelude::FromRow;
 
 use crate::appstate::AppState;
 
@@ -21,7 +21,7 @@ impl SignupUser {
         (StatusCode::NOT_FOUND, "Not Found")
     }
 
-    pub async fn request(State(state): State<AppState>, Json(payload): Json<SignupUser>) -> (StatusCode, &'static str) {
+    pub async fn request(State(state): State<AppState>, Form(payload): Form<SignupUser>) -> (StatusCode, &'static str) {
         println!("{:?}", payload);
         //TODO send payload to database
         sqlx::query("INSERT INTO users (name) VALUES (?1)").bind(payload.name).execute(&state.pool).await.unwrap();
