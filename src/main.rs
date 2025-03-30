@@ -1,41 +1,48 @@
-use axum::{http::StatusCode, routing::{get, get_service, post}, Json, Router};
-use serde::Deserialize;
-use tower_http::services::{ServeDir, ServeFile};
+use axum::{http::StatusCode, routing::get, Router};
+use sqlx::{Executor, Pool, Sqlite};
+use tower_http::services::ServeFile;
 use std::net::SocketAddr;
+
+mod signup;
+mod appstate;
+
+use signup::SignupUser;
+use appstate::AppState;
 
 async fn handler_404() -> (StatusCode, &'static str) {
     (StatusCode::NOT_FOUND, "Not Found")
 }
 
-#[derive(Deserialize, Debug)]
-struct SignupUser {
-    name: String,
-    email: String,
+async fn init_database() -> Pool<Sqlite>{
+    let opt = sqlx::sqlite::SqliteConnectOptions::new().filename("test.db").create_if_missing(true);
+
+    let pool = sqlx::sqlite::SqlitePool::connect_with(opt).await.unwrap();
+
+    pool.execute("
+      CREATE TABLE if not exists users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEST
+      )
+    ").await.unwrap();
+
+    pool
 }
 
-async fn signup_page() -> (StatusCode, &'static str) {
-    (StatusCode::NOT_FOUND, "Not Found")
-}
-
-async fn signup_request(Json(payload): Json<SignupUser>) -> (StatusCode, &'static str) {
-    //TODO send payload to database
-    //TODO send message stating user has signed up
-    println!("{:?}", payload);
-    (StatusCode::NOT_FOUND, "Not Found")
+fn init_router(state: AppState) -> Router {
+    Router::new()
+        .route_service("/", ServeFile::new("./frontend/index.html"))
+        .route("/signup", get(SignupUser::page).post(SignupUser::request))
+        .with_state(state)
 }
 
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new()
-        .route_service("/", ServeFile::new("./frontend/index.html"))
-        .route("/signup", post(signup_request))
-        .fallback(handler_404);
-
+    let db = init_database().await;
+    let state = AppState{pool: db};
+    let app = init_router(state);
     let addr = SocketAddr::from(([127, 0, 0, 1], 37373));
-
     println!("Serving app at: http://{}", addr);
-
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
     axum::serve(listener, app).await.unwrap();
