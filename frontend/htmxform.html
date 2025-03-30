@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+    <header>
+        <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+    </header>
+<body>
+<h1>Pallet Spaces</h1>
+<h1>Please add your most valuable data for us to sell:</h1>
+    <form hx-post="/signup" hx-target="#message">
+      <input type="text" name="name" placeholder="Name" required />
+      <input type="email" name="email" placeholder="Email" required />
+      <input type="submit" value="Submit" />
+    </form>
+    <div id="message"></div>
+</body>
+</html> 
