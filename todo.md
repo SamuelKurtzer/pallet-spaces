@@ -1,4 +1,6 @@
 - [] signup page
+- [] input validation
+- [] remove getPersonList
 - [] front page
 - [] signup backend
 - [] database managment
