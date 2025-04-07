@@ -1,7 +1,7 @@
 use axum::{http::StatusCode, routing::get, Router};
 use sqlx::{Executor, Pool, Sqlite};
 use tokio::net::TcpListener;
-use tower_http::services::ServeFile;
+use tower_http::services::{ServeDir, ServeFile};
 use std::net::SocketAddr;
 
 mod signup;
@@ -27,9 +27,10 @@ async fn init_database() -> Pool<Sqlite>{
 
 fn init_router(state: AppState) -> Router {
     Router::new()
-        .route_service("/", ServeFile::new("./frontend/htmxform.html"))
+        .route_service("/", ServeFile::new("./frontend/assets/index.html"))
         .route("/signup", get(SignupUser::page).post(SignupUser::request))
         .route("/get_users", get(SignupUser::get_person_list))
+        .nest_service("/assets", ServeDir::new("./frontend/assets/"))
         .with_state(state)
 }
 
