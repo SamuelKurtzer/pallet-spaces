@@ -3,6 +3,7 @@
 - [] remove getPersonList
 - [] front page
 - [] signup backend
+    - [] auth
 - [] database managment
 - [] docker for deployment
 - [] example market page (Dummy data)

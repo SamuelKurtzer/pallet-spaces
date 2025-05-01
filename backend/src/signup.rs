@@ -14,6 +14,7 @@ pub struct SignupUser {
 pub struct User {
     id: i32,
     name: String,
+    email: String
 }
 
 impl SignupUser {
