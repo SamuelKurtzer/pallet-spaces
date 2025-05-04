@@ -6,13 +6,12 @@ use crate::error::Error;
 use super::{DatabaseComponent, Private};
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
-pub struct User {
+pub struct Post {
     id: Private<i32>,
-    pub name: String,
-    pub email: String
+    title: String,
 }
 
-impl DatabaseComponent<User> for Pool<Sqlite> {
+impl DatabaseComponent<Post> for Pool<Sqlite> {
     async fn create_table(self) -> Result<Self, Error> {
       let creation_attempt = self.execute("
       CREATE TABLE if not exists users (
@@ -27,8 +26,8 @@ impl DatabaseComponent<User> for Pool<Sqlite> {
       }
     }
 
-    async fn insert_struct(self, item: User) -> Result<Self, Error> {
-      let attempt = sqlx::query("INSERT INTO users (name, email) VALUES (?1, ?2)").bind(item.name).bind(item.email).execute(&self).await;
+    async fn insert_struct(self, item: Post) -> Result<Self, Error> {
+      let attempt = sqlx::query("INSERT INTO users (title) VALUES (?1)").bind(item.title).execute(&self).await;
       match attempt {
         Ok(_) => todo!(),
         Err(_) => todo!(),

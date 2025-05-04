@@ -1,4 +1,7 @@
 pub mod users;
+pub mod posts;
+
+use std::path::Component;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Pool, Sqlite};
@@ -12,7 +15,13 @@ enum Private<T> {
     Pub(T),
 }
 
-pub trait DatabaseComponent<T> where Self: Sized {
-    async fn create_table(pool: Self) -> Result<Self, Error>;
-    async fn insert_struct(pool: Self, item: T) -> Result<Self, Error>;
+pub trait DatabaseComponent where Self: Sized {
+    type Component;
+    async fn create_table<Component>(self) -> Result<Self, Error> where 
+        Self: DatabaseComponentImpl<Component>;
+    async fn insert_struct(self, item: Component) -> Result<Self, Error>;
+}
+
+pub trait DatabaseComponentImpl<T> {
+    async fn create_table_impl(&self) -> Result<(), Error>;
 }

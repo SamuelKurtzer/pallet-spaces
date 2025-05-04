@@ -1,4 +1,3 @@
-mod signup;
 mod appstate;
 mod error;
 mod views;
@@ -6,29 +5,29 @@ mod model;
 mod controller;
 
 use axum::{routing::get, Router};
-use model::users::create_users;
+use controller::signup::SignupUser;
 use sqlx::{Executor, Pool, Sqlite};
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 use std::net::SocketAddr;
 use error::Error;
-use signup::SignupUser;
+use model::{posts::Post, users::User, DatabaseComponent};
 use appstate::AppState;
-use pages::{home::main_page};
+use views::{home::main_page};
 
 async fn create_database() -> Result<Pool<Sqlite>, Error> {
     let opt = sqlx::sqlite::SqliteConnectOptions::new().filename("test.db").create_if_missing(true);
 
-    let pool = sqlx::sqlite::SqlitePool::connect_with(opt).await.unwrap();
-
-    create_users(pool).await
+    let pool = sqlx::sqlite::SqlitePool::connect_with(opt).await.unwrap(); 
+    pool.create_table::<User>()
+        .create_table::<Post>()
+        .await
 }
 
 fn create_router(state: AppState) -> Router {
     Router::new()
         .route_service("/", get(main_page))
         .route("/signup", get(SignupUser::page).post(SignupUser::request))
-        .route("/get_users", get(SignupUser::get_person_list))
         .nest_service("/public", ServeDir::new("./frontend/public/"))
         .with_state(state)
 }
