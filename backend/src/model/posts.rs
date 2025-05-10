@@ -3,11 +3,12 @@ use sqlx::{prelude::FromRow, Executor, Pool, Sqlite};
 
 use crate::error::Error;
 
-use super::{DatabaseComponent, Private};
+use super::DatabaseComponent;
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 pub struct Post {
-    id: Private<i32>,
+    #[serde(default)]
+    id: i32,
     title: String,
 }
 

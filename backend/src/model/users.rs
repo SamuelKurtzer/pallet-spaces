@@ -3,15 +3,26 @@ use sqlx::{prelude::FromRow, Executor, Pool, Sqlite};
 
 use crate::error::Error;
 
-use super::{DatabaseComponent, Private};
+use super::{DatabaseComponent};
 
-#[derive(FromRow, Serialize, Deserialize, Debug)]
+#[derive(FromRow, Serialize, Deserialize)]
 pub struct User {
     #[serde(default)]
-    id: Private<i32>,
+    id: u64,
     pub name: String,
     pub email: String,
     password: String,
+}
+
+impl std::fmt::Debug for User {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("User")
+      .field("id", &self.id)
+      .field("name", &self.name)
+      .field("email", &self.email)
+      .field("password", &"[REDACTED]")
+      .finish()
+  }
 }
 
 impl DatabaseComponent for User {

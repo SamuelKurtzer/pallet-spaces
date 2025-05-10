@@ -4,8 +4,8 @@ mod views;
 mod model;
 mod controller;
 
-use axum::{routing::get, Router};
-use controller::signup::SignupUser;
+use axum::{routing::{get, post}, Router};
+use controller::{signup::SignupUser, Routes};
 use sqlx::{Pool, Sqlite};
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
@@ -31,7 +31,7 @@ async fn create_database() -> Result<Pool<Sqlite>, Error> {
 fn create_router(state: AppState) -> Router {
     Router::new()
         .route_service("/", get(main_page))
-        .route("/signup", get(SignupUser::page).post(SignupUser::request))
+        .add_routes::<SignupUser>()
         .nest_service("/public", ServeDir::new("./frontend/public/"))
         .with_state(state)
 }
