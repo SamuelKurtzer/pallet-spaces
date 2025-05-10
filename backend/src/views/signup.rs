@@ -1,9 +1,12 @@
 use maud::{Markup, html};
+use crate::views::utils::title_and_navbar;
+
 use super::utils::default_header;
 
 pub async fn signup_page() -> Markup {
     html! {
         (default_header("Pallet Spaces: Signup"))
+        (title_and_navbar())
         body {
             form id="signupForm" action="signup" method="POST" hx-post="/signup" {
                 label for="email" { "E-mail:" }
@@ -29,6 +32,20 @@ pub async fn signup_success() -> Markup {
             }
             p {
                 "We'll be in touch soon if theres enough interest"
+            }
+        }
+    }
+}
+
+pub async fn signup_failure() -> Markup {
+    html!{
+        (default_header("Pallet Spaces: Signup"))
+        body {
+            h2 {
+                "Attempted signup failed"
+            }
+            p {
+                "Please try again"
             }
         }
     }

@@ -6,7 +6,7 @@ mod controller;
 
 use axum::{routing::get, Router};
 use controller::signup::SignupUser;
-use sqlx::{Executor, Pool, Sqlite};
+use sqlx::{Pool, Sqlite};
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 use std::net::SocketAddr;
@@ -16,12 +16,16 @@ use appstate::AppState;
 use views::{home::main_page};
 
 async fn create_database() -> Result<Pool<Sqlite>, Error> {
-    let opt = sqlx::sqlite::SqliteConnectOptions::new().filename("test.db").create_if_missing(true);
-
-    let pool = sqlx::sqlite::SqlitePool::connect_with(opt).await.unwrap(); 
-    pool.create_table::<User>()
-        .create_table::<Post>()
-        .await
+    let opt = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename("test.db")
+        .create_if_missing(true);
+    let pool = match sqlx::sqlite::SqlitePool::connect_with(opt).await {
+        Ok(pool) => Ok(pool),
+        Err(_) => Err(Error::Database("Failed to create database")),
+    }?;
+    User::create_table(&pool).await?;
+    Post::create_table(&pool).await?;
+    Ok(pool)
 }
 
 fn create_router(state: AppState) -> Router {
@@ -34,16 +38,19 @@ fn create_router(state: AppState) -> Router {
 
 async fn create_listener() -> Result<TcpListener, Error> {
     let addr = SocketAddr::from(([127, 0, 0, 1], 37373));
-    println!("Serving app at: http://{}", addr);
+    tracing::info!("Serving app at: http://{}", addr);
     match TcpListener::bind(addr).await {
         Ok(ok) => Ok(ok),
-        Err(_) => Err(Error::SocketBind("failed to bind to specified socket")),
+        Err(_) => Err(Error::SocketBind("Failed to bind to specified socket")),
     }
 }
 
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
+    tracing::info!("Tracing initialised.");
+
     let db = match create_database().await {
         Ok(db) => db,
         Err(err) => panic!("{:?}", err),

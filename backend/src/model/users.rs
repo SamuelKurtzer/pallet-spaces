@@ -7,14 +7,16 @@ use super::{DatabaseComponent, Private};
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
 pub struct User {
+    #[serde(default)]
     id: Private<i32>,
     pub name: String,
-    pub email: String
+    pub email: String,
+    password: String,
 }
 
-impl DatabaseComponent<User> for Pool<Sqlite> {
-    async fn create_table(self) -> Result<Self, Error> {
-      let creation_attempt = self.execute("
+impl DatabaseComponent for User {
+    async fn create_table(pool: &Pool<Sqlite>) -> Result<(), Error> {
+      let creation_attempt = pool.execute("
       CREATE TABLE if not exists users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -22,16 +24,23 @@ impl DatabaseComponent<User> for Pool<Sqlite> {
       )
       ").await;
       match creation_attempt {
-          Ok(_) => Ok(self),
-          Err(_) => Err(Error::Database("Failed to create database tables")),
+          Ok(query_result) => {
+            Ok(())
+          },
+          Err(_) => Err(Error::Database("Failed to create user database tables")),
       }
     }
 
-    async fn insert_struct(self, item: User) -> Result<Self, Error> {
-      let attempt = sqlx::query("INSERT INTO users (name, email) VALUES (?1, ?2)").bind(item.name).bind(item.email).execute(&self).await;
+    async fn insert_struct(self, pool: &Pool<Sqlite>) -> Result<(), Error> {
+      let attempt = sqlx::query(
+        "INSERT INTO users (name, email) VALUES (?1, ?2)")
+        .bind(self.name)
+        .bind(self.email)
+        .execute(pool)
+        .await;
       match attempt {
-        Ok(_) => todo!(),
-        Err(_) => todo!(),
+        Ok(_) => Ok(()),
+        Err(_) => Err(Error::Database("Failed to insert user into database")),
       }
     }
 }

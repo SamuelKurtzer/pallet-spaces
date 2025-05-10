@@ -10,3 +10,13 @@ pub fn default_header(page_name: &str) -> Markup {
         }
     }
 }
+
+pub fn title_and_navbar() -> Markup {
+    html!{
+        h1 { "Pallet Spaces" }
+        ul {
+            li { a href="/" { "Home" }}
+            li { a href="/signup" { "Signup" }}
+        }
+    }
+}

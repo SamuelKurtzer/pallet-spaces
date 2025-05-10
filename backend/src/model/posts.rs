@@ -11,26 +11,29 @@ pub struct Post {
     title: String,
 }
 
-impl DatabaseComponent<Post> for Pool<Sqlite> {
-    async fn create_table(self) -> Result<Self, Error> {
-      let creation_attempt = self.execute("
-      CREATE TABLE if not exists users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE
-      )
-      ").await;
-      match creation_attempt {
-          Ok(_) => Ok(self),
-          Err(_) => Err(Error::Database("Failed to create database tables")),
-      }
+impl DatabaseComponent for Post {
+  async fn create_table(pool: &Pool<Sqlite>) -> Result<(), Error> {
+    let creation_attempt = pool.execute("
+    CREATE TABLE if not exists users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL
+    )
+    ").await;
+    match creation_attempt {
+        Ok(_) => Ok(()),
+        Err(_) => Err(Error::Database("Failed to create post database tables")),
     }
+  }
 
-    async fn insert_struct(self, item: Post) -> Result<Self, Error> {
-      let attempt = sqlx::query("INSERT INTO users (title) VALUES (?1)").bind(item.title).execute(&self).await;
-      match attempt {
-        Ok(_) => todo!(),
-        Err(_) => todo!(),
-      }
+  async fn insert_struct(self, pool: &Pool<Sqlite>) -> Result<(), Error> {
+    let attempt = sqlx::query(
+      "INSERT INTO users (title) VALUES (?1)")
+      .bind(self.title)
+      .execute(pool)
+      .await;
+    match attempt {
+      Ok(_) => Ok(()),
+      Err(_) => Err(Error::Database("Failed to insert post into database")),
     }
+  }
 }
