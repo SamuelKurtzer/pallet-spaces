@@ -11,21 +11,15 @@ use axum::{
 };
 use controller::{signup::SignupUser, Routes};
 use error::Error;
-use model::{posts::Post, users::User, DatabaseComponent};
+use model::{posts::Post, users::User, database::{Database, DatabaseComponent}};
 use sqlx::{Pool, Sqlite};
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 use views::home::main_page;
 
-async fn create_database() -> Result<Pool<Sqlite>, Error> {
-    let opt = sqlx::sqlite::SqliteConnectOptions::new()
-        .filename("test.db")
-        .create_if_missing(true);
-    let pool = match sqlx::sqlite::SqlitePool::connect_with(opt).await {
-        Ok(pool) => Ok(pool),
-        Err(_) => Err(Error::Database("Failed to create database")),
-    }?;
+async fn create_database() -> Result<Database, Error> {
+    let pool = Database::new_database().await?;
     Ok(pool
         .initialise_table::<User>()
         .await?

@@ -8,7 +8,7 @@ use maud::Markup;
 
 use crate::{
     appstate::AppState,
-    model::{users::User, DatabaseComponent},
+    model::{users::User, database::DatabaseComponent},
     views::signup::{email_form_html, signup_failure, signup_page, signup_success},
 };
 
