@@ -63,3 +63,19 @@ pub async fn signup_failure() -> Markup {
         }
     }
 }
+
+pub async fn login_page() -> Markup {
+    html! {
+        (default_header("Pallet Spaces: Login"))
+        (title_and_navbar())
+        body {
+            form id="loginForm" action="login" method="POST" hx-post="/login" {
+                (email_form_html(true, ""))
+                label for="Password" { "Password:" }
+                input type="text" id="password" name="password" {}
+                br {}
+                button type="submit" { "Submit" }
+            }
+        }
+    }
+}

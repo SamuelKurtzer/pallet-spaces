@@ -15,18 +15,22 @@ pub struct User {
     id: u64,
     pub name: String,
     pub email: String,
-    pub pw_hash: Vec<u8>,
+    pub pw_hash: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Credential {
     pub email: String,
-    pub pw_hash: Vec<u8>
+    pub password: Vec<u8>
 }
 
 impl User {
-    fn from_email(email: String, pool: Database) -> Result<Self, Error> {
-        todo!()
+    pub async fn from_email(email: String, pool: &Database) -> Result<Self, Error> {
+        let user: User = sqlx::query_as("select * from users where email = ? ")
+            .bind(email)
+            .fetch_one(&pool.0)
+            .await?;
+        Ok(user)
     }
 
     async fn get_all_users(pool: &Database) -> Vec<User> {
@@ -112,6 +116,6 @@ impl AuthUser for User {
     }
 
     fn session_auth_hash(&self) -> &[u8] {
-        &self.pw_hash
+        &self.pw_hash.as_bytes()
     }
 }

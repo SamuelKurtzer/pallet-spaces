@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::Utf8Error};
 
 use tokio::task::JoinError;
 
@@ -7,6 +7,7 @@ pub enum Error {
     Database(String),
     SocketBind(String),
     Async(String),
+    String(String)
 }
 
 impl Display for Error {
@@ -38,5 +39,11 @@ impl From<sqlx::Error> for Error {
 impl From<JoinError> for Error {
     fn from(value: JoinError) -> Self {
         Error::Async(format!("{:?}", value))
+    }
+}
+
+impl From<Utf8Error> for Error {
+    fn from(value: Utf8Error) -> Self {
+        Error::String(format!("{:?}", value))
     }
 }

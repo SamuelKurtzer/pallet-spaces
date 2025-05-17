@@ -13,16 +13,15 @@ use crate::{
 };
 
 use super::RouteProvider;
-pub struct SignupUser;
-impl RouteProvider for SignupUser {
+impl RouteProvider for User {
     fn provide_routes(router: Router<AppState>) -> Router<AppState> {
         router
-            .route("/signup", get(SignupUser::page).post(SignupUser::request))
-            .route("/signup/email", post(SignupUser::email_validation))
+            .route("/signup", get(User::page).post(User::request))
+            .route("/signup/email", post(User::email_validation))
     }
 }
 
-impl SignupUser {
+impl User {
     pub async fn page() -> (StatusCode, Markup) {
         (StatusCode::OK, signup_page().await)
     }

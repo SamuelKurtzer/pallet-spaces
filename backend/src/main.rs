@@ -9,7 +9,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use controller::{signup::SignupUser, Routes};
+use controller::Routes;
 use error::Error;
 use model::{posts::Post, users::User, database::{Database, DatabaseComponent}};
 use sqlx::{Pool, Sqlite};
@@ -19,7 +19,7 @@ use tower_http::services::ServeDir;
 use views::home::main_page;
 
 async fn create_database() -> Result<Database, Error> {
-    let pool = Database::new_database().await?;
+    let pool = Database::new().await?;
     Ok(pool
         .initialise_table::<User>()
         .await?
@@ -30,7 +30,7 @@ async fn create_database() -> Result<Database, Error> {
 fn create_router(state: AppState) -> Router {
     Router::new()
         .route_service("/", get(main_page))
-        .add_routes::<SignupUser>()
+        .add_routes::<User>()
         .nest_service("/public", ServeDir::new("./frontend/public/"))
         .with_state(state)
 }

@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{ops::{Deref, DerefMut}, string::FromUtf8Error};
 
 use async_trait::async_trait;
 use axum_login::{AuthnBackend, UserId};
@@ -14,7 +14,7 @@ use super::users::{Credential, User};
 pub struct Database(pub Pool<Sqlite>);
 
 impl Database {
-    pub async fn new_database() -> Result<Self, Error> {
+    pub async fn new() -> Result<Self, Error> {
         let opt = sqlx::sqlite::SqliteConnectOptions::new()
         .filename("test.db")
         .create_if_missing(true);
@@ -30,6 +30,12 @@ impl Deref for Database {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for Database { 
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -74,19 +80,26 @@ impl AuthnBackend for Database {
         &self,
         creds: Self::Credentials,
     ) -> Result<Option<Self::User>, Self::Error> {
-        let user: Option<Self::User> = sqlx::query_as("select * from users where email = ? ")
-            .bind(creds.email)
-            .fetch_optional(&self.0)
-            .await?;
+        let user: Self::User = match User::from_email(creds.email, self).await {
+            Ok(user) => user,
+            Err(_) => return Ok(None),
+        };
 
         // Verifying the password is blocking and potentially slow, so we'll do so via
         // `spawn_blocking`.
-        task::spawn_blocking(|| {
+        
+        let password_hash = user.pw_hash.clone();
+        
+        let valid_pass = task::spawn_blocking(move || {
             // We're using password-based authentication--this works by comparing our form
             // input with an argon2 password hash.
-            Ok(user.filter(|user| verify_password(creds.pw_hash, &String::from_utf8(user.pw_hash.clone()).expect("invalid password hash")).is_ok()))
+            verify_password(creds.password, &password_hash)
         })
-        .await?
+        .await?;
+        match valid_pass {
+            Ok(val) => Ok(Some(user)),
+            Err(inval) => Err(Error::Database("Invalid password provided".into())),
+        }
     }
 
     async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {

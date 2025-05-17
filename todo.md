@@ -1,9 +1,12 @@
 - [] signup page
 - [] input validation
-- [] remove getPersonList
 - [] front page
 - [] signup backend
-    - [] auth
+    - [X] auth
+    - [] Login Screen
+- [] Add in newtypes
+    - [] User types
+    - [] Post types
 - [] database managment
 - [] docker for deployment
 - [] example market page (Dummy data)
