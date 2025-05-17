@@ -29,7 +29,7 @@ impl DatabaseProvider for Post {
             .await;
         match creation_attempt {
             Ok(_) => Ok(pool),
-            Err(_) => Err(Error::Database("Failed to create post database tables")),
+            Err(_) => Err(Error::Database("Failed to create post database tables".into())),
         }
     }
 
@@ -40,7 +40,7 @@ impl DatabaseProvider for Post {
             .await;
         match attempt {
             Ok(_) => Ok(pool),
-            Err(_) => Err(Error::Database("Failed to insert post into database")),
+            Err(_) => Err(Error::Database("Failed to insert post into database".into())),
         }
     }
 

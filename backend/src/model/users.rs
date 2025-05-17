@@ -1,7 +1,8 @@
+use async_trait::async_trait;
 use axum_login::{AuthUser, AuthnBackend, UserId};
 use password_auth::verify_password;
 use serde::{Deserialize, Serialize};
-use sqlx::{prelude::FromRow, Executor, Pool, Sqlite};
+use sqlx::{prelude::FromRow, Executor};
 use tokio::task;
 
 use crate::error::Error;
@@ -14,13 +15,13 @@ pub struct User {
     id: u64,
     pub name: String,
     pub email: String,
-    pw_hash: Vec<u8>,
+    pub pw_hash: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Credential {
     pub email: String,
-    pw_hash: Vec<u8>
+    pub pw_hash: Vec<u8>
 }
 
 impl User {
@@ -67,7 +68,7 @@ impl DatabaseProvider for User {
             .await;
         match creation_attempt {
             Ok(_) => Ok(pool),
-            Err(_) => Err(Error::Database("Failed to create user database tables")),
+            Err(_) => Err(Error::Database("Failed to create user database tables".into())),
         }
     }
 
@@ -79,7 +80,7 @@ impl DatabaseProvider for User {
             .await;
         match attempt {
             Ok(_) => Ok(pool),
-            Err(_) => Err(Error::Database("Failed to insert user into database")),
+            Err(_) => Err(Error::Database("Failed to insert user into database".into())),
         }
     }
 
@@ -90,7 +91,7 @@ impl DatabaseProvider for User {
             .await;
         match attempt {
             Ok(user) => Ok(user),
-            Err(_) => Err(Error::Database("Failed to insert user into database")),
+            Err(_) => Err(Error::Database("Failed to insert user into database".into())),
         }
     }
 
@@ -113,47 +114,4 @@ impl AuthUser for User {
     fn session_auth_hash(&self) -> &[u8] {
         &self.pw_hash
     }
-}
-
-
-impl AuthnBackend for Database {
-    type User = User;
-    type Credentials = Credential;
-    type Error = AuthError;
-
-    async fn authenticate(
-        &self,
-        creds: Self::Credentials,
-    ) -> Result<Option<Self::User>, Self::Error> {
-        let user: Option<Self::User> = sqlx::query_as("select * from users where email = ? ")
-            .bind(creds.email)
-            .fetch_optional(&self.0)
-            .await?;
-
-        // Verifying the password is blocking and potentially slow, so we'll do so via
-        // `spawn_blocking`.
-        task::spawn_blocking(|| {
-            // We're using password-based authentication--this works by comparing our form
-            // input with an argon2 password hash.
-            Ok(user.filter(|user| verify_password(creds.pw_hash, &String::from_utf8(user.pw_hash.clone()).expect("invalid password hash")).is_ok()))
-        })
-        .await?
-    }
-
-    async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
-        let user = sqlx::query_as("select * from users where id = ?")
-            .bind(user_id)
-            .fetch_optional(&self.0)
-            .await?;
-        Ok(user)
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum AuthError {
-    #[error(transparent)]
-    Sqlx(#[from] sqlx::Error),
-
-    #[error(transparent)]
-    TaskJoin(#[from] task::JoinError),
 }

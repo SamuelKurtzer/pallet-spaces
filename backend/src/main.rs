@@ -40,7 +40,7 @@ async fn create_listener() -> Result<TcpListener, Error> {
     tracing::info!("Serving app at: http://{}", addr);
     match TcpListener::bind(addr).await {
         Ok(ok) => Ok(ok),
-        Err(_) => Err(Error::SocketBind("Failed to bind to specified socket")),
+        Err(_) => Err(Error::SocketBind("Failed to bind to specified socket".into())),
     }
 }
 

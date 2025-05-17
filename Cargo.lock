@@ -1327,6 +1327,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 name = "pallet-spaces"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "axum-login",
  "maud",
@@ -1334,6 +1335,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "thiserror",
  "tokio",
  "tower-http",
  "tracing",
