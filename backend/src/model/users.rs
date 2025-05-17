@@ -17,6 +17,7 @@ pub struct User {
     pw_hash: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
 pub struct Credential {
     pub email: String,
     pw_hash: Vec<u8>
@@ -103,10 +104,10 @@ impl DatabaseProvider for User {
 }
 
 impl AuthUser for User {
-    type Id = u64;
+    type Id = u32;
 
     fn id(&self) -> Self::Id {
-        self.id
+        self.id as u32
     }
 
     fn session_auth_hash(&self) -> &[u8] {
@@ -116,28 +117,43 @@ impl AuthUser for User {
 
 
 impl AuthnBackend for Database {
-    #[doc = " Authenticating user type."]
     type User = User;
-
-    #[doc = " Credential type used for authentication."]
     type Credentials = Credential;
+    type Error = AuthError;
 
-    #[doc = " An error which can occur during authentication and authorization."]
-    type Error = Error;
+    async fn authenticate(
+        &self,
+        creds: Self::Credentials,
+    ) -> Result<Option<Self::User>, Self::Error> {
+        let user: Option<Self::User> = sqlx::query_as("select * from users where email = ? ")
+            .bind(creds.email)
+            .fetch_optional(&self.0)
+            .await?;
 
-    #[doc = " Authenticates the given credentials with the backend."]
-    async fn authenticate(&self, creds: Self::Credentials) ->  Result<Option<Self::User>, Self::Error> {
-        let user: Option<Self::User> = sqlx::query_as("select * from users where email = ?").bind(creds.email).fetch_optional(&self.0).await?;
+        // Verifying the password is blocking and potentially slow, so we'll do so via
+        // `spawn_blocking`.
         task::spawn_blocking(|| {
             // We're using password-based authentication--this works by comparing our form
             // input with an argon2 password hash.
-            Ok(user.filter(|user| verify_password(creds.pw_hash, &user.pw_hash).is_ok()))
+            Ok(user.filter(|user| verify_password(creds.pw_hash, &String::from_utf8(user.pw_hash.clone()).expect("invalid password hash")).is_ok()))
         })
         .await?
     }
 
-    #[doc = " Gets the user by provided ID from the backend."]
-    async fn get_user(&self, user_id: &UserId<Self>) ->  ::core::pin::Pin<Box<dyn ::core::future::Future<Output = Result<Option<Self::User> ,Self::Error> > + ::core::marker::Send+'async_trait> >where 'life0:'async_trait,'life1:'async_trait,Self:'async_trait {
-        todo!()
+    async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
+        let user = sqlx::query_as("select * from users where id = ?")
+            .bind(user_id)
+            .fetch_optional(&self.0)
+            .await?;
+        Ok(user)
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AuthError {
+    #[error(transparent)]
+    Sqlx(#[from] sqlx::Error),
+
+    #[error(transparent)]
+    TaskJoin(#[from] task::JoinError),
 }
