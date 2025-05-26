@@ -1,5 +1,5 @@
-use maud::{Markup, html};
 use crate::views::utils::title_and_navbar;
+use maud::{html, Markup};
 
 use super::utils::default_header;
 
@@ -37,7 +37,7 @@ pub fn email_form_html(valid: bool, email: &str) -> Markup {
 }
 
 pub async fn signup_success() -> Markup {
-    html!{
+    html! {
         (default_header("Pallet Spaces: Signup"))
         body {
             h2 {
@@ -51,7 +51,7 @@ pub async fn signup_success() -> Markup {
 }
 
 pub async fn signup_failure() -> Markup {
-    html!{
+    html! {
         (default_header("Pallet Spaces: Signup"))
         body {
             h2 {
@@ -69,13 +69,19 @@ pub async fn login_page() -> Markup {
         (default_header("Pallet Spaces: Login"))
         (title_and_navbar())
         body {
-            form id="loginForm" action="login" method="POST" hx-post="/login" {
-                (email_form_html(true, ""))
-                label for="Password" { "Password:" }
-                input type="text" id="password" name="password" {}
-                br {}
-                button type="submit" { "Submit" }
-            }
+            (login_form().await)
+        }
+    }
+}
+
+pub async fn login_form() -> Markup {
+    html! {
+        form id="loginForm" action="login" method="POST" hx-post="/login" {
+            (email_form_html(true, ""))
+            label for="Password" { "Password:" }
+            input type="text" id="password" name="password" {}
+            br {}
+            button type="submit" { "Submit" }
         }
     }
 }

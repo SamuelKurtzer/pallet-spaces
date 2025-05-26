@@ -4,6 +4,7 @@ use password_auth::verify_password;
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, Executor};
 use tokio::task;
+use tracing::{debug, info};
 
 use crate::error::Error;
 
@@ -18,22 +19,42 @@ pub struct User {
     pub pw_hash: String,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+pub struct SignupUser {
+    pub name: String,
+    pub email: String,
+    pub password: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Credential {
     pub email: String,
-    pub password: Vec<u8>
+    pub password: String,
 }
 
 impl User {
+    pub fn new(name: &str, email: &str, password: &str) -> Self {
+        let user = User {
+            id: 0,
+            name: name.to_string(),
+            email: email.to_string(),
+            pw_hash: password.to_string(),
+        };
+        debug!("Made new user {:?}", user);
+        user
+    }
+
     pub async fn from_email(email: String, pool: &Database) -> Result<Self, Error> {
+        info!("{}", email);
         let user: User = sqlx::query_as("select * from users where email = ? ")
             .bind(email)
             .fetch_one(&pool.0)
             .await?;
+        debug!("{:?}", user);
         Ok(user)
     }
 
-    async fn get_all_users(pool: &Database) -> Vec<User> {
+    pub async fn get_all_users(pool: &Database) -> Vec<User> {
         let mut users = vec![];
         for i in 0..20 {
             if let Ok(user) = User::retrieve(i, pool).await {
@@ -55,6 +76,12 @@ impl std::fmt::Debug for User {
     }
 }
 
+impl std::fmt::Display for User {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{:?}", self))
+    }
+}
+
 impl DatabaseProvider for User {
     type Database = Database;
     type Id = u32;
@@ -65,26 +92,32 @@ impl DatabaseProvider for User {
       CREATE TABLE if not exists users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE
+        email TEXT NOT NULL UNIQUE,
+        pw_hash TEXT NOT NULL
       )
       ",
             )
             .await;
         match creation_attempt {
             Ok(_) => Ok(pool),
-            Err(_) => Err(Error::Database("Failed to create user database tables".into())),
+            Err(_) => Err(Error::Database(
+                "Failed to create user database tables".into(),
+            )),
         }
     }
 
     async fn create(self, pool: &Database) -> Result<&Database, Error> {
-        let attempt = sqlx::query("INSERT INTO users (name, email) VALUES (?1, ?2)")
+        let attempt = sqlx::query("INSERT INTO users (name, email, pw_hash) VALUES (?1, ?2, ?3)")
             .bind(self.name)
             .bind(self.email)
+            .bind(self.pw_hash)
             .execute(&pool.0)
             .await;
         match attempt {
             Ok(_) => Ok(pool),
-            Err(_) => Err(Error::Database("Failed to insert user into database".into())),
+            Err(_) => Err(Error::Database(
+                "Failed to insert user into database".into(),
+            )),
         }
     }
 
@@ -95,7 +128,9 @@ impl DatabaseProvider for User {
             .await;
         match attempt {
             Ok(user) => Ok(user),
-            Err(_) => Err(Error::Database("Failed to insert user into database".into())),
+            Err(_) => Err(Error::Database(
+                "Failed to insert user into database".into(),
+            )),
         }
     }
 

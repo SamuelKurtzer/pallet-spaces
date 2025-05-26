@@ -1,8 +1,7 @@
-use maud::{Markup, html, DOCTYPE};
-
+use maud::{html, Markup, DOCTYPE};
 
 pub fn default_header(page_name: &str) -> Markup {
-    html!{
+    html! {
         (DOCTYPE)
         head {
             title { (page_name.to_owned()) }
@@ -12,11 +11,17 @@ pub fn default_header(page_name: &str) -> Markup {
 }
 
 pub fn title_and_navbar() -> Markup {
-    html!{
+    html! {
         h1 { "Pallet Spaces" }
         ul {
             li { a href="/" { "Home" }}
             li { a href="/signup" { "Signup" }}
         }
+    }
+}
+
+pub fn page_not_found() -> Markup {
+    html! {
+        h1 { "404: Page not found" }
     }
 }
