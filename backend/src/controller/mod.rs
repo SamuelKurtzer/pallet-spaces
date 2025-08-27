@@ -1,9 +1,6 @@
 use axum::Router;
 
 use crate::appstate::AppState;
-
-pub mod signup;
-
 pub trait Routes {
     fn add_routes<T: RouteProvider>(self) -> Self;
 }

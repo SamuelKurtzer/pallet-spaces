@@ -7,7 +7,7 @@ pub enum Error {
     Database(String),
     SocketBind(String),
     Async(String),
-    String(String)
+    String(String),
 }
 
 impl Display for Error {

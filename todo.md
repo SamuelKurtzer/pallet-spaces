@@ -1,4 +1,4 @@
-- [] signup page
+- [X] signup page
 - [] input validation
 - [] front page
 - [] signup backend

@@ -4,12 +4,8 @@ mod error;
 mod model;
 mod plugins;
 mod views;
-
 use appstate::AppState;
-use axum::{
-    routing::{get, post},
-    Router,
-};
+use axum::{Router, routing::get};
 use controller::Routes;
 use error::Error;
 use model::database::{Database, DatabaseComponent};
@@ -18,6 +14,8 @@ use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 use views::home::main_page;
+
+use plugins::posts::Post;
 
 async fn create_database() -> Result<Database, Error> {
     let pool = Database::new().await?;
@@ -28,6 +26,7 @@ fn create_router(state: AppState) -> Router {
     Router::new()
         .route_service("/", get(main_page))
         .add_routes::<User>()
+        .add_routes::<Post>()
         .nest_service("/public", ServeDir::new("./frontend/public/"))
         .with_state(state)
 }
@@ -35,6 +34,7 @@ fn create_router(state: AppState) -> Router {
 async fn create_listener() -> Result<TcpListener, Error> {
     let addr = SocketAddr::from(([127, 0, 0, 1], 37373));
     tracing::info!("Serving app at: http://{}", addr);
+    println!("Serving app at: http://{}", addr);
     match TcpListener::bind(addr).await {
         Ok(ok) => Ok(ok),
         Err(_) => Err(Error::SocketBind(

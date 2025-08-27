@@ -1,26 +1,22 @@
-use crate::appstate::AppState;
-use crate::error::Error;
-use crate::model::database::{Database, DatabaseProvider};
-use crate::views::utils::{default_header, title_and_navbar};
-use async_trait::async_trait;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    routing::{get, post},
-    Form, Router,
-};
-use axum_login::{AuthUser, AuthnBackend, UserId};
-use maud::{html, Markup};
-use password_auth::verify_password;
 use serde::{Deserialize, Serialize};
-use sqlx::{prelude::FromRow, Executor};
-use tokio::task;
-use tracing::{debug, info};
+use sqlx::prelude::FromRow;
+use tracing::debug;
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, sqlx::Type,
+)]
+#[sqlx(transparent)]
+pub struct UserID(u64);
+
+impl From<u64> for UserID {
+    fn from(raw: u64) -> Self {
+        UserID(raw)
+    }
+}
 
 #[derive(Clone, FromRow, Serialize, Deserialize)]
 pub struct User {
-    #[serde(default)]
-    id: u64,
+    id: Option<UserID>,
     pub name: String,
     pub email: String,
     pub pw_hash: String,
@@ -42,7 +38,7 @@ pub struct Credential {
 impl User {
     pub fn new(name: &str, email: &str, password: &str) -> Self {
         let user = User {
-            id: 0,
+            id: None,
             name: name.to_string(),
             email: email.to_string(),
             pw_hash: password.to_string(),
@@ -168,7 +164,10 @@ mod model {
         type Id = u32;
 
         fn id(&self) -> Self::Id {
-            self.id as u32
+            match &self.id {
+                Some(a) => a.0 as u32,
+                None => 0,
+            }
         }
 
         fn session_auth_hash(&self) -> &[u8] {
@@ -179,10 +178,10 @@ mod model {
 
 mod control {
     use axum::{
+        Form, Router,
         extract::State,
         http::StatusCode,
         routing::{get, post},
-        Form, Router,
     };
     use maud::Markup;
 
@@ -192,8 +191,8 @@ mod control {
     };
 
     use super::{
-        view::{email_form_html, login_page, signup_failure, signup_page, signup_success},
         Credential, SignupUser, User,
+        view::{email_form_html, login_page, signup_failure, signup_page, signup_success},
     };
 
     impl RouteProvider for User {
@@ -280,7 +279,7 @@ mod control {
 }
 
 mod view {
-    use maud::{html, Markup};
+    use maud::{Markup, html};
 
     use crate::views::utils::{default_header, title_and_navbar};
 

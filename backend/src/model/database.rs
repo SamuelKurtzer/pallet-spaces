@@ -1,4 +1,4 @@
-use std::{ops::{Deref, DerefMut}, string::FromUtf8Error};
+use std::ops::{Deref, DerefMut};
 
 use async_trait::async_trait;
 use axum_login::{AuthnBackend, UserId};
@@ -8,7 +8,7 @@ use tokio::task;
 
 use crate::error::Error;
 
-use super::users::{Credential, User};
+use crate::plugins::users::{Credential, User};
 
 #[derive(Clone, Debug)]
 pub struct Database(pub Pool<Sqlite>);
@@ -16,8 +16,8 @@ pub struct Database(pub Pool<Sqlite>);
 impl Database {
     pub async fn new() -> Result<Self, Error> {
         let opt = sqlx::sqlite::SqliteConnectOptions::new()
-        .filename("test.db")
-        .create_if_missing(true);
+            .filename("test.db")
+            .create_if_missing(true);
         match sqlx::sqlite::SqlitePool::connect_with(opt).await {
             Ok(pool) => Ok(Database(pool)),
             Err(_) => Err(Error::Database("Failed to create database".into())),
@@ -33,7 +33,7 @@ impl Deref for Database {
     }
 }
 
-impl DerefMut for Database { 
+impl DerefMut for Database {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -87,9 +87,9 @@ impl AuthnBackend for Database {
 
         // Verifying the password is blocking and potentially slow, so we'll do so via
         // `spawn_blocking`.
-        
+
         let password_hash = user.pw_hash.clone();
-        
+
         let valid_pass = task::spawn_blocking(move || {
             // We're using password-based authentication--this works by comparing our form
             // input with an argon2 password hash.
@@ -97,8 +97,8 @@ impl AuthnBackend for Database {
         })
         .await?;
         match valid_pass {
-            Ok(val) => Ok(Some(user)),
-            Err(inval) => Err(Error::Database("Invalid password provided".into())),
+            Ok(_) => Ok(Some(user)),
+            Err(_inval) => Err(Error::Database("Invalid password provided".into())),
         }
     }
 

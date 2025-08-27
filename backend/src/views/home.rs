@@ -1,5 +1,5 @@
-use maud::{Markup, DOCTYPE, html};
 use crate::views::utils::title_and_navbar;
+use maud::{DOCTYPE, Markup, html};
 
 use super::utils::default_header;
 pub async fn main_page() -> Markup {
@@ -12,4 +12,3 @@ pub async fn main_page() -> Markup {
         }
     }
 }
-

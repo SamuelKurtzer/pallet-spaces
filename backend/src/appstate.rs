@@ -1,5 +1,3 @@
-use sqlx::SqlitePool;
-
 use crate::model::database::Database;
 
 #[derive(Clone)]
@@ -9,6 +7,6 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(pool: Database) -> Self {
-        AppState { pool: pool}
+        AppState { pool: pool }
     }
 }
