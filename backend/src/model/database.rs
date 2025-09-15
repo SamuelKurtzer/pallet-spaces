@@ -98,7 +98,7 @@ impl AuthnBackend for Database {
         .await?;
         match valid_pass {
             Ok(_) => Ok(Some(user)),
-            Err(_inval) => Err(Error::Database("Invalid password provided".into())),
+            Err(_inval) => Ok(None),
         }
     }
 

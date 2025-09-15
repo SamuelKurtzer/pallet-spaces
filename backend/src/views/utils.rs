@@ -10,12 +10,20 @@ pub fn default_header(page_name: &str) -> Markup {
     }
 }
 
-pub fn title_and_navbar() -> Markup {
+pub fn title_and_navbar(is_auth: bool) -> Markup {
     html! {
         h1 { "Pallet Spaces" }
         ul {
             li { a href="/" { "Home" }}
-            li { a href="/signup" { "Signup" }}
+            li { a href="/posts" { "Posts" }}
+            @if !is_auth {
+                li { a href="/signup" { "Signup" }}
+                li { a href="/login" { "Login" }}
+            } @else {
+                li { a href="/me" { "My Account" }}
+                li { a href="/users" { "Users" }}
+                li { form action="/logout" method="POST" { button type="submit" { "Logout" } } }
+            }
         }
     }
 }

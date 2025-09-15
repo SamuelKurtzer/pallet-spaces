@@ -60,23 +60,38 @@ mod model {
     use super::User;
     impl User {
         pub async fn from_email(email: String, pool: &Database) -> Result<Self, Error> {
-            tracing::info!("{}", email);
+            tracing::debug!(email = %email, "lookup user by email");
             let user: User = sqlx::query_as("select * from users where email = ? ")
                 .bind(email)
                 .fetch_one(&pool.0)
                 .await?;
-            tracing::debug!("{:?}", user);
+            tracing::debug!(?user, "user loaded");
             Ok(user)
         }
 
         pub async fn get_all_users(pool: &Database) -> Vec<User> {
-            let mut users = vec![];
-            for i in 0..20 {
-                if let Ok(user) = User::retrieve(i, pool).await {
-                    users.push(user);
+            match sqlx::query_as::<_, User>(
+                "SELECT id, name, email, pw_hash FROM users ORDER BY id DESC LIMIT 100",
+            )
+            .fetch_all(&pool.0)
+            .await
+            {
+                Ok(list) => list,
+                Err(err) => {
+                    tracing::warn!(?err, "failed to list users");
+                    vec![]
                 }
             }
-            users
+        }
+
+        pub async fn exists_by_email(pool: &Database, email: &str) -> Result<bool, Error> {
+            let exists = sqlx::query_scalar::<_, i64>(
+                "SELECT 1 FROM users WHERE email = ?1 LIMIT 1",
+            )
+            .bind(email)
+            .fetch_optional(&pool.0)
+            .await?;
+            Ok(exists.is_some())
         }
     }
 
@@ -178,16 +193,20 @@ mod model {
 
 mod control {
     use axum::{
-        Form, Router,
         extract::State,
         http::StatusCode,
         routing::{get, post},
+        Form, Router,
     };
+    use axum_login::AuthSession;
+    use axum::response::{IntoResponse, Redirect, Response};
     use maud::Markup;
 
     use crate::{
-        appstate::AppState, controller::RouteProvider, model::database::DatabaseComponent,
-        views::utils::page_not_found,
+        appstate::AppState,
+        controller::RouteProvider,
+        model::database::{Database, DatabaseComponent},
+        views::utils::{default_header, page_not_found, title_and_navbar},
     };
 
     use super::{
@@ -201,38 +220,57 @@ mod control {
                 .route("/signup", get(User::signup_page).post(User::signup_request))
                 .route("/signup/email", post(User::email_validation))
                 .route("/login", get(User::login_page).post(User::login_request))
+                .route("/logout", post(User::logout_request))
                 .route("/users", get(User::user_list))
+                .route("/me", get(User::me_page))
         }
     }
 
     impl User {
-        pub async fn signup_page() -> (StatusCode, Markup) {
-            (StatusCode::OK, signup_page().await)
+        pub async fn signup_page(auth: AuthSession<Database>) -> (StatusCode, Markup) {
+            let is_auth = auth.user.is_some();
+            (StatusCode::OK, signup_page(is_auth).await)
         }
 
         pub async fn signup_request(
             State(state): State<AppState>,
             Form(payload): Form<SignupUser>,
         ) -> (StatusCode, Markup) {
+            // Normalize and validate
+            let email = payload.email.trim().to_lowercase();
+            let name = payload.name.trim().to_string();
+            if email.is_empty() || name.is_empty() || payload.password.len() < 8 {
+                return (StatusCode::BAD_REQUEST, signup_failure().await);
+            }
+
+            // Prevent duplicate accounts
+            if let Ok(true) = User::exists_by_email(&state.pool, &email).await {
+                return (StatusCode::CONFLICT, signup_failure().await);
+            }
+
             let pw_hash = password_auth::generate_hash(&payload.password);
-            let user = User::new(&payload.name, &payload.email, &pw_hash);
+            let user = User::new(&name, &email, &pw_hash);
             tracing::debug!("Signing up user {:?}", user);
             let insert_result = state.pool.create(user).await;
             tracing::debug!("Creation success {:?}", insert_result);
             match insert_result {
                 Ok(_) => (StatusCode::OK, signup_success().await),
-                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, signup_failure().await),
+                Err(_) => (StatusCode::CONFLICT, signup_failure().await),
             }
         }
 
-        pub async fn email_validation(Form(payload): Form<SignupUser>) -> (StatusCode, Markup) {
+        pub async fn email_validation(
+            State(state): State<AppState>,
+            Form(payload): Form<SignupUser>,
+        ) -> (StatusCode, Markup) {
             // Actually a hard problem, can be better solved(see: https://david-gilbertson.medium.com/the-100-correct-way-to-validate-email-addresses-7c4818f24643)
             // but for now
             // check there exits an @
             let mut valid = payload.email.contains('@');
 
             // Check text is either side of the email
-            let results = payload.email.split('@').collect::<Vec<&str>>();
+            let email = payload.email.trim().to_lowercase();
+            let results = email.split('@').collect::<Vec<&str>>();
             let mut res_iter = results.iter();
             valid &= match res_iter.next() {
                 Some(a) => !a.is_empty(),
@@ -243,37 +281,89 @@ mod control {
                 None => false,
             };
 
-            (StatusCode::OK, email_form_html(valid, &payload.email))
+            // Duplicate check against DB
+            if valid && User::exists_by_email(&state.pool, &email).await.unwrap_or(false) {
+                valid = false;
+            }
+
+            (StatusCode::OK, email_form_html(valid, &email))
         }
 
         // Login
-        pub async fn login_page() -> (StatusCode, Markup) {
-            (StatusCode::OK, login_page().await)
+        pub async fn login_page(auth: AuthSession<Database>) -> (StatusCode, Markup) {
+            let is_auth = auth.user.is_some();
+            (StatusCode::OK, login_page(is_auth, true, "", None).await)
         }
 
         pub async fn login_request(
-            State(state): State<AppState>,
+            mut auth: AuthSession<Database>,
             Form(payload): Form<Credential>,
-        ) -> (StatusCode, Markup) {
-            let maybe_user = User::from_email(payload.email, &state.pool).await;
-            let user = match maybe_user {
-                Err(_) => return (StatusCode::NOT_ACCEPTABLE, login_page().await),
-                Ok(user) => user,
-            };
-            let valid = password_auth::verify_password(&payload.password, &user.pw_hash);
-            match valid {
-                Ok(_) => (StatusCode::OK, login_page().await),
-                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, page_not_found()),
+        ) -> Response {
+            let email = payload.email.clone();
+            match auth.authenticate(payload).await {
+                Ok(Some(user)) => {
+                    if let Err(err) = auth.login(&user).await {
+                        tracing::error!(?err, "failed to establish session");
+                        return (StatusCode::INTERNAL_SERVER_ERROR, page_not_found()).into_response();
+                    }
+                    Redirect::to("/me").into_response()
+                }
+                Ok(None) => (
+                    StatusCode::UNAUTHORIZED,
+                    login_page(false, false, &email, Some("Invalid email or password")).await,
+                )
+                    .into_response(),
+                Err(err) => {
+                    tracing::error!(?err, "authentication error");
+                    (StatusCode::INTERNAL_SERVER_ERROR, page_not_found()).into_response()
+                }
             }
         }
 
-        pub async fn user_list(State(state): State<AppState>) -> (StatusCode, Markup) {
-            let contents = maud::html! { ol {
-                @for user in User::get_all_users(&state.pool).await {
-                    li { (user) }
+        pub async fn logout_request(mut auth: AuthSession<Database>) -> StatusCode {
+            if let Err(err) = auth.logout().await {
+                tracing::warn!(?err, "logout failed");
+            }
+            StatusCode::NO_CONTENT
+        }
+
+        pub async fn user_list(
+            auth: AuthSession<Database>,
+            State(state): State<AppState>,
+        ) -> (StatusCode, Markup) {
+            if auth.user.as_ref().is_none() {
+                return (StatusCode::UNAUTHORIZED, login_page(false, true, "", None).await);
+            }
+            let contents = maud::html! {
+                (default_header("Pallet Spaces: Users"))
+                (title_and_navbar(true))
+                body {
+                    h2 { "Users" }
+                    ol {
+                        @for user in User::get_all_users(&state.pool).await {
+                            li { (format!("{} <{}>", user.name, user.email)) }
+                        }
+                    }
                 }
-            }};
+            };
             (StatusCode::OK, contents)
+        }
+
+        pub async fn me_page(auth: AuthSession<Database>) -> (StatusCode, Markup) {
+            if let Some(user) = auth.user.clone() {
+                let body = maud::html! {
+                    (default_header("Pallet Spaces: My Account"))
+                    (title_and_navbar(true))
+                    body {
+                        h2 { "My Account" }
+                        p { (format!("Name: {}", user.name)) }
+                        p { (format!("Email: {}", user.email)) }
+                    }
+                };
+                (StatusCode::OK, body)
+            } else {
+                (StatusCode::UNAUTHORIZED, login_page(false, true, "", None).await)
+            }
         }
     }
 }
@@ -283,10 +373,10 @@ mod view {
 
     use crate::views::utils::{default_header, title_and_navbar};
 
-    pub async fn signup_page() -> Markup {
+    pub async fn signup_page(is_auth: bool) -> Markup {
         html! {
             (default_header("Pallet Spaces: Signup"))
-            (title_and_navbar())
+            (title_and_navbar(is_auth))
             body {
                 form id="signupForm" action="signup" method="POST" hx-post="/signup" {
                     (email_form_html(true, ""))
@@ -294,7 +384,7 @@ mod view {
                     input type="text" id="name" name="name" {}
                     br {}
                     label for="Password" { "Password:" }
-                    input type="text" id="password" name="password" {}
+                    input type="password" id="password" name="password" minlength="8" required {}
                     br {}
                     button type="submit" { "Submit" }
                 }
@@ -344,22 +434,27 @@ mod view {
         }
     }
 
-    pub async fn login_page() -> Markup {
+    pub async fn login_page(is_auth: bool, valid_email: bool, email: &str, warn: Option<&str>) -> Markup {
         html! {
             (default_header("Pallet Spaces: Login"))
-            (title_and_navbar())
+            (title_and_navbar(is_auth))
             body {
-                (login_form().await)
+                @if let Some(msg) = warn {
+                    div style="color:#b45309; background:#fef3c7; border:1px solid #f59e0b; padding:8px; margin-bottom:12px; border-radius:6px;" {
+                        (msg)
+                    }
+                }
+                (login_form(valid_email, email).await)
             }
         }
     }
 
-    pub async fn login_form() -> Markup {
+    pub async fn login_form(valid_email: bool, email: &str) -> Markup {
         html! {
             form id="loginForm" action="login" method="POST" hx-post="/login" {
-                (email_form_html(true, ""))
+                (email_form_html(valid_email, email))
                 label for="Password" { "Password:" }
-                input type="text" id="password" name="password" {}
+                input type="password" id="password" name="password" required {}
                 br {}
                 button type="submit" { "Submit" }
             }
