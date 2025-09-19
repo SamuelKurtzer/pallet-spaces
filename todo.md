@@ -10,3 +10,7 @@
 - [] database managment
 - [] docker for deployment
 - [] example market page (Dummy data)
+\n+Upcoming UI improvements
+- [] Mark active nav links using `aria-current="page"` per route
+- [] Add `.table` component for tabular data
+- [] Add dark-mode tokens with `prefers-color-scheme: dark`

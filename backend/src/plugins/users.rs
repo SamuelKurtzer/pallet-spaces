@@ -198,9 +198,10 @@ mod control {
         routing::{get, post},
         Form, Router,
     };
-    use axum_login::AuthSession;
+    use axum_login::{AuthSession, AuthUser};
     use axum::response::{IntoResponse, Redirect, Response};
     use maud::Markup;
+    use tracing::{debug, error, info, warn};
 
     use crate::{
         appstate::AppState,
@@ -233,29 +234,60 @@ mod control {
         }
 
         pub async fn signup_request(
+            mut auth: AuthSession<Database>,
             State(state): State<AppState>,
             Form(payload): Form<SignupUser>,
-        ) -> (StatusCode, Markup) {
+        ) -> Response {
             // Normalize and validate
             let email = payload.email.trim().to_lowercase();
             let name = payload.name.trim().to_string();
-            if email.is_empty() || name.is_empty() || payload.password.len() < 8 {
-                return (StatusCode::BAD_REQUEST, signup_failure().await);
+            let pw_len = payload.password.len();
+            info!(target: "user.signup", %email, %name, pw_len, "signup request received");
+            if email.is_empty() || name.is_empty() || pw_len < 8 {
+                warn!(target: "user.signup", %email, %name, pw_len, reason = "invalid_input", "signup rejected");
+                return (StatusCode::BAD_REQUEST, signup_failure().await).into_response();
             }
 
             // Prevent duplicate accounts
-            if let Ok(true) = User::exists_by_email(&state.pool, &email).await {
-                return (StatusCode::CONFLICT, signup_failure().await);
+            match User::exists_by_email(&state.pool, &email).await {
+                Ok(true) => {
+                    warn!(target: "user.signup", %email, %name, reason = "duplicate_email", "signup rejected");
+                    return (StatusCode::CONFLICT, signup_failure().await).into_response();
+                }
+                Ok(false) => debug!(target: "user.signup", %email, %name, "email available"),
+                Err(err) => {
+                    error!(target: "user.signup", %email, %name, ?err, reason = "exists_check_failed", "signup failed at duplicate check");
+                    return (StatusCode::INTERNAL_SERVER_ERROR, signup_failure().await).into_response();
+                }
             }
 
             let pw_hash = password_auth::generate_hash(&payload.password);
             let user = User::new(&name, &email, &pw_hash);
-            tracing::debug!("Signing up user {:?}", user);
+            debug!(target: "user.signup", user = ?user, "creating user");
             let insert_result = state.pool.create(user).await;
-            tracing::debug!("Creation success {:?}", insert_result);
+            debug!(target: "user.signup", res = ?insert_result, "insert result");
             match insert_result {
-                Ok(_) => (StatusCode::OK, signup_success().await),
-                Err(_) => (StatusCode::CONFLICT, signup_failure().await),
+                Ok(_) => {
+                    // Load full user (with id) and establish session
+                    match User::from_email(email.clone(), &state.pool).await {
+                        Ok(user) => {
+                            if let Err(err) = auth.login(&user).await {
+                                error!(target: "user.signup", %email, %name, ?err, reason = "login_failed", "auto-login failed after signup");
+                                return (StatusCode::INTERNAL_SERVER_ERROR, signup_failure().await).into_response();
+                            }
+                            info!(target: "user.signup", %email, %name, "signup success, redirecting to /me");
+                            return Redirect::to("/me").into_response();
+                        }
+                        Err(err) => {
+                            error!(target: "user.signup", %email, %name, ?err, reason = "lookup_failed", "failed to load user after signup");
+                            return (StatusCode::INTERNAL_SERVER_ERROR, signup_failure().await).into_response();
+                        }
+                    }
+                }
+                Err(err) => {
+                    error!(target: "user.signup", %email, %name, ?err, reason = "db_insert_failed", "signup failed");
+                    (StatusCode::CONFLICT, signup_failure().await).into_response()
+                }
             }
         }
 
@@ -282,9 +314,15 @@ mod control {
             };
 
             // Duplicate check against DB
-            if valid && User::exists_by_email(&state.pool, &email).await.unwrap_or(false) {
-                valid = false;
+            let mut duplicate = false;
+            if valid {
+                match User::exists_by_email(&state.pool, &email).await {
+                    Ok(true) => { duplicate = true; valid = false; }
+                    Ok(false) => {}
+                    Err(err) => warn!(target: "user.signup", %email, ?err, reason = "exists_check_failed", "email validation fallback to format only"),
+                }
             }
+            info!(target: "user.signup", %email, valid_format = (results.len() == 2), duplicate, final_valid = valid, "email validation");
 
             (StatusCode::OK, email_form_html(valid, &email))
         }
@@ -337,11 +375,13 @@ mod control {
             let contents = maud::html! {
                 (default_header("Pallet Spaces: Users"))
                 (title_and_navbar(true))
-                body {
-                    h2 { "Users" }
-                    ol {
-                        @for user in User::get_all_users(&state.pool).await {
-                            li { (format!("{} <{}>", user.name, user.email)) }
+                body class="page" {
+                    div class="container" {
+                        h2 { "Users" }
+                        ol {
+                            @for user in User::get_all_users(&state.pool).await {
+                                li { (format!("{} <{}>", user.name, user.email)) }
+                            }
                         }
                     }
                 }
@@ -349,15 +389,51 @@ mod control {
             (StatusCode::OK, contents)
         }
 
-        pub async fn me_page(auth: AuthSession<Database>) -> (StatusCode, Markup) {
+        pub async fn me_page(
+            auth: AuthSession<Database>,
+            State(state): State<AppState>,
+        ) -> (StatusCode, Markup) {
             if let Some(user) = auth.user.clone() {
+                let posts = crate::plugins::posts::Post::get_posts_by_user(&state.pool, user.id() as i64).await;
                 let body = maud::html! {
                     (default_header("Pallet Spaces: My Account"))
                     (title_and_navbar(true))
-                    body {
-                        h2 { "My Account" }
-                        p { (format!("Name: {}", user.name)) }
-                        p { (format!("Email: {}", user.email)) }
+                    body class="page" {
+                        div class="container stack" {
+                            h2 { "My Account" }
+                            p { (format!("Name: {}", user.name)) }
+                            p { (format!("Email: {}", user.email)) }
+                            h3 { "My Posts" }
+                            @if posts.is_empty() {
+                                p class="text-muted" { "You have not created any posts yet." }
+                            } @else {
+                                div class="list" {
+                                    @for p in posts {
+                                        div class="card" {
+                                            @match p.id_raw() {
+                                                Some(id) => h3 { a href=(format!("/posts/{}", id)) { (p.title.clone()) } }
+                                                None => h3 { (p.title.clone()) }
+                                            }
+                                            p class="text-muted" { (p.location) " — " (p.price) " /week" }
+                                            @if p.visible == 0 { span class="badge badge--hidden" { "(hidden)" } }
+                                            @match p.id_raw() {
+                                                Some(id) => div class="cluster mt-2" {
+                                                    a class="btn btn--secondary" href=(format!("/posts/{}/edit", id)) { "Edit" }
+                                                    form method="POST" action=(format!("/posts/{}/toggle_visibility", id)) {
+                                                        @let is_hidden = p.visible == 0;
+                                                        button class="btn btn--ghost" type="submit" { (if is_hidden { "Show" } else { "Hide" }) }
+                                                    }
+                                                    form method="POST" action=(format!("/posts/{}/delete", id)) onsubmit="return confirm('Delete this post?');" {
+                                                        button class="btn btn--danger" type="submit" { "Delete" }
+                                                    }
+                                                }
+                                                None => {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 };
                 (StatusCode::OK, body)
@@ -377,31 +453,23 @@ mod view {
         html! {
             (default_header("Pallet Spaces: Signup"))
             (title_and_navbar(is_auth))
-            body {
-                form id="signupForm" action="signup" method="POST" hx-post="/signup" {
+            body class="page" {
+                form class="container card form" id="signupForm" action="signup" method="POST" hx-post="/signup" {
                     (email_form_html(true, ""))
-                    label for="Fullname" { "Fullname:" }
-                    input type="text" id="name" name="name" {}
-                    br {}
-                    label for="Password" { "Password:" }
-                    input type="password" id="password" name="password" minlength="8" required {}
-                    br {}
-                    button type="submit" { "Submit" }
+                    div class="field" { label class="label" for="name" { "Fullname:" } input class="input" type="text" id="name" name="name" {} }
+                    div class="field" { label class="label" for="password" { "Password:" } input class="input" type="password" id="password" name="password" minlength="8" required {} }
+                    div { button class="btn btn--primary" type="submit" { "Submit" } }
                 }
             }
         }
     }
 
     pub fn email_form_html(valid: bool, email: &str) -> Markup {
-        let validation_class = match valid {
-            false => "invalid-form-input",
-            true => "valid-form-input",
-        };
         html! {
-            div hx-target="this" hx-swap="outerHTML" {
-                label for="email" { "E-mail:" }
-                input type="text" id="email" name="email" class=(validation_class) hx-post="/signup/email" value=(email) { }
-                br {}
+            div class="field" hx-target="this" hx-swap="outerHTML" {
+                label class="label" for="email" { "E-mail:" }
+                input class="input" type="text" id="email" name="email" hx-post="/signup/email" value=(email) aria-invalid=(!valid) {}
+                @if !valid { p class="help" { "Please enter a valid, unused email." } }
             }
         }
     }
@@ -409,12 +477,10 @@ mod view {
     pub async fn signup_success() -> Markup {
         html! {
             (default_header("Pallet Spaces: Signup"))
-            body {
-                h2 {
-                    "Thanks for signing up"
-                }
-                p {
-                    "We'll be in touch soon if theres enough interest"
+            body class="page" {
+                div class="container card" {
+                    h2 { "Thanks for signing up" }
+                    p class="text-muted" { "We\'ll be in touch soon if there\'s enough interest." }
                 }
             }
         }
@@ -423,12 +489,10 @@ mod view {
     pub async fn signup_failure() -> Markup {
         html! {
             (default_header("Pallet Spaces: Signup"))
-            body {
-                h2 {
-                    "Attempted signup failed"
-                }
-                p {
-                    "Please try again"
+            body class="page" {
+                div class="container card" {
+                    h2 { "Attempted signup failed" }
+                    p class="text-muted" { "Please try again" }
                 }
             }
         }
@@ -438,12 +502,8 @@ mod view {
         html! {
             (default_header("Pallet Spaces: Login"))
             (title_and_navbar(is_auth))
-            body {
-                @if let Some(msg) = warn {
-                    div style="color:#b45309; background:#fef3c7; border:1px solid #f59e0b; padding:8px; margin-bottom:12px; border-radius:6px;" {
-                        (msg)
-                    }
-                }
+            body class="page" {
+                @if let Some(msg) = warn { div class="container card" { p class="error" { (msg) } } }
                 (login_form(valid_email, email).await)
             }
         }
@@ -451,12 +511,10 @@ mod view {
 
     pub async fn login_form(valid_email: bool, email: &str) -> Markup {
         html! {
-            form id="loginForm" action="login" method="POST" hx-post="/login" {
+            form class="container card form" id="loginForm" action="login" method="POST" hx-post="/login" {
                 (email_form_html(valid_email, email))
-                label for="Password" { "Password:" }
-                input type="password" id="password" name="password" required {}
-                br {}
-                button type="submit" { "Submit" }
+                div class="field" { label class="label" for="password" { "Password:" } input class="input" type="password" id="password" name="password" required {} }
+                div { button class="btn btn--primary" type="submit" { "Submit" } }
             }
         }
     }

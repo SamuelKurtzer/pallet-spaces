@@ -12,8 +12,8 @@ pub async fn main_page(auth: AuthSession<Database>) -> Markup {
         (DOCTYPE)
         (default_header("Pallet Spaces"))
         (title_and_navbar(is_auth))
-        body {
-            p { "hello world" }
+        body class="page" {
+            div class="container" { p { "hello world" } }
         }
     }
 }

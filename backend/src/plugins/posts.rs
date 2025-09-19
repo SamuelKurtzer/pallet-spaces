@@ -24,6 +24,7 @@ pub struct Post {
     pub min_stay_unit: String,  // "weeks" or "months"
     pub available_date: String, // YYYY-MM-DD
     pub notes: String,
+    pub visible: i64,
 }
 
 impl Post {
@@ -49,6 +50,7 @@ impl Post {
             min_stay_unit: min_stay_unit.to_string(),
             available_date: available_date.to_string(),
             notes: notes.to_string(),
+            visible: 1,
         }
     }
 
@@ -105,6 +107,19 @@ mod model {
             }
         }
 
+        pub async fn get_posts_by_user(pool: &Database, user_id: i64) -> Vec<Post> {
+            match sqlx::query_as::<_, Post>(
+                "SELECT * FROM Posts WHERE user_id = ?1 ORDER BY id DESC",
+            )
+            .bind(user_id)
+            .fetch_all(&pool.0)
+            .await
+            {
+                Ok(posts) => posts,
+                Err(_) => Vec::new(),
+            }
+        }
+
         pub async fn get_posts_filtered(
             pool: &Database,
             filter: &crate::plugins::posts::control::PostsFilter,
@@ -114,6 +129,9 @@ mod model {
             let mut sql = String::from("SELECT * FROM Posts");
             let mut args = SqliteArguments::default();
             let mut cond: Vec<&str> = Vec::new();
+
+            // Only show visible posts on public listing
+            cond.push("visible = 1");
 
             if let Some(ref title) = filter.title {
                 cond.push("title LIKE ?");
@@ -194,7 +212,8 @@ mod model {
         min_stay_value INTEGER NOT NULL,
         min_stay_unit TEXT NOT NULL,
         available_date TEXT NOT NULL,
-        notes TEXT NOT NULL
+        notes TEXT NOT NULL,
+        visible INTEGER NOT NULL DEFAULT 1
       )
       ",
                 )
@@ -212,6 +231,7 @@ mod model {
                         "ALTER TABLE Posts ADD COLUMN min_stay_value INTEGER NOT NULL DEFAULT 0",
                         "ALTER TABLE Posts ADD COLUMN min_stay_unit TEXT NOT NULL DEFAULT 'weeks'",
                         "ALTER TABLE Posts ADD COLUMN available_date TEXT NOT NULL DEFAULT ''",
+                        "ALTER TABLE Posts ADD COLUMN visible INTEGER NOT NULL DEFAULT 1",
                     ];
                     for stmt in migrations { let _ = pool.0.execute(stmt).await; }
                     Ok(pool)
@@ -275,6 +295,7 @@ mod control {
         Form, Router,
         extract::{Query, State},
         http::StatusCode,
+        response::{IntoResponse, Redirect, Response},
         routing::{get},
     };
     use maud::Markup;
@@ -286,10 +307,10 @@ mod control {
         appstate::AppState,
         controller::RouteProvider,
         model::database::{DatabaseComponent, DatabaseProvider},
-        plugins::posts::view::{new_post_failure, new_post_success},
+        plugins::posts::view::{new_post_failure, new_post_success, post_form_page},
     };
 
-    use super::{NewPost, Post, view::create_post_page};
+    use super::{NewPost, Post, view::{posts_index_page, post_show_page_view}};
     use crate::plugins::posts::model::EditPost;
 
     #[derive(Debug, Default, Deserialize)]
@@ -312,13 +333,31 @@ mod control {
                 )
                 .route("/posts", get(Post::post_list))
                 .route("/posts/{id}/edit", get(Post::edit_post_page))
+                .route("/posts/{id}/toggle_visibility", axum::routing::post(Post::toggle_visibility))
+                .route("/posts/{id}/delete", axum::routing::post(Post::delete_post))
                 .route("/posts/{id}", get(Post::show_post_page).post(Post::edit_post_request))
         }
     }
 
     impl Post {
-        pub async fn create_post_page() -> (StatusCode, Markup) {
-            (StatusCode::OK, create_post_page().await)
+        pub async fn create_post_page(
+        ) -> (StatusCode, Markup) {
+            // No auth state in nav for now; page link is already gated in UI
+            let is_auth = false;
+            // Provide sensible defaults for a new post
+            let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+            let draft = Post::new(
+                "",
+                "",
+                0,
+                0,
+                1,
+                1,
+                "weeks",
+                &today,
+                "",
+            );
+            (StatusCode::OK, post_form_page(is_auth, "Create Post", "/new_post", &draft).await)
         }
 
         pub async fn new_post_request(
@@ -358,83 +397,8 @@ mod control {
         ) -> (StatusCode, Markup) {
             let posts = Post::get_posts_filtered(&state.pool, &filter).await;
             let current_uid = auth.user.as_ref().map(|u| u.id() as i64);
-            let contents = maud::html! {
-                (crate::views::utils::default_header("Pallet Spaces: Posts"))
-                (crate::views::utils::title_and_navbar(false))
-                body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#f8fafc; margin:0; padding:16px;" {
-                    h2 style="max-width: 860px; margin: 8px auto 16px; font-size: 1.5rem;" { "Available Spaces" }
-                    form method="GET" action="/posts" style="max-width: 860px; margin: 0 auto 16px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px; display:grid; grid-template-columns: repeat(6, 1fr); gap:8px; align-items:end;" {
-                        div style="display:flex; flex-direction:column; gap:4px;" {
-                            label for="title" { "Title" }
-                            input type="text" id="title" name="title" value=(filter.title.clone().unwrap_or_default()) {}
-                        }
-                        div style="display:flex; flex-direction:column; gap:4px;" {
-                            label for="location" { "Location" }
-                            input type="text" id="location" name="location" value=(filter.location.clone().unwrap_or_default()) {}
-                        }
-                        div style="display:flex; flex-direction:column; gap:4px;" {
-                            label for="max_price" { "Max Price/wk" }
-                            input type="number" id="max_price" name="max_price" min="0" step="1" value=(filter.max_price.clone().unwrap_or_default()) {}
-                        }
-                        div style="display:flex; flex-direction:column; gap:4px;" {
-                            label for="min_spaces_available" { "Min Spaces" }
-                            input type="number" id="min_spaces_available" name="min_spaces_available" min="0" step="1" value=(filter.min_spaces_available.clone().unwrap_or_default()) {}
-                        }
-                        div style="display:flex; flex-direction:column; gap:4px;" {
-                            label for="min_stay_value" { "Min Stay" }
-                            input type="number" id="min_stay_value" name="min_stay_value" min="0" step="1" value=(filter.min_stay_value.clone().unwrap_or_default()) {}
-                        }
-                        div style="display:flex; flex-direction:column; gap:4px;" {
-                            label for="min_stay_unit" { "Unit" }
-                            select id="min_stay_unit" name="min_stay_unit" {
-                                @let unit = filter.min_stay_unit.clone().unwrap_or_default();
-                                option value="" selected[unit == ""] { "Any" }
-                                option value="weeks" selected[unit == "weeks"] { "Weeks" }
-                                option value="months" selected[unit == "months"] { "Months" }
-                            }
-                        }
-                        div style="display:flex; flex-direction:column; gap:4px; grid-column: span 2;" {
-                            label for="available_from" { "Available From" }
-                            input type="date" id="available_from" name="available_from" value=(filter.available_from.clone().unwrap_or_default()) {}
-                        }
-                        div style="grid-column: span 4; text-align:right;" {
-                            button type="submit" style="background:#0ea5e9; color:#fff; border:none; border-radius:8px; padding:8px 12px; cursor:pointer;" { "Filter" }
-                            a href="/posts" style="margin-left:8px; color:#334155;" { "Reset" }
-                        }
-                    }
-                    @if posts.is_empty() {
-                        p style="max-width: 860px; margin: 0 auto; color:#475569;" { "No posts yet." }
-                    } @else {
-                        div id="posts" style="display:grid; gap:12px; grid-template-columns: 1fr; max-width: 860px; margin: 0 auto;" {
-                            @for p in posts {
-                                div class="post-card" style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);" {
-                                    @match p.id_raw() {
-                                        Some(id) => h3 style="margin:0 0 8px 0; font-size:1.1rem;" { a href=(format!("/posts/{}", id)) style="color:#0ea5e9; text-decoration:none;" { (p.title) } },
-                                        None => h3 style="margin:0 0 8px 0; font-size:1.1rem; color:#0f172a;" { (p.title) }
-                                    }
-                                    p style="margin:4px 0; color:#334155;" { strong { "Location: " } (p.location) }
-                                    p style="margin:4px 0; color:#334155;" { strong { "Price: " } (p.price) " /week" }
-                                    p style="margin:4px 0; color:#334155;" { strong { "Minimum stay: " } (p.min_stay_value) " " (p.min_stay_unit) }
-                                    p style="margin:4px 0; color:#334155;" { strong { "Available from: " } (p.available_date) }
-                                    p style="margin:4px 0; color:#334155;" { strong { "Pallet spaces available: " } (p.spaces_available) }
-                                    @if !p.notes.is_empty() {
-                                        p style="margin:8px 0 0; color:#475569;" { (p.notes) }
-                                    }
-                                    @if current_uid == Some(p.user_id) {
-                                        @match p.id_raw() {
-                                            Some(id) => div style="margin-top:8px;" {
-                                                a href=(format!("/posts/{}/edit", id)) style="display:inline-block; background:#64748b; color:#fff; border:none; border-radius:8px; padding:6px 10px; text-decoration:none;" { "Edit" }
-                                            },
-                                            None => {}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            };
-            (StatusCode::OK, contents)
+            let is_auth = auth.user.is_some();
+            (StatusCode::OK, posts_index_page(is_auth, &filter, &posts, current_uid).await)
         }
 
         pub async fn show_post_page(
@@ -447,30 +411,8 @@ mod control {
                 Err(_) => return (StatusCode::NOT_FOUND, crate::views::utils::page_not_found()),
             };
             let current_uid = auth.user.as_ref().map(|u| u.id() as i64);
-            let contents = maud::html! {
-                (crate::views::utils::default_header("Pallet Spaces: Post"))
-                (crate::views::utils::title_and_navbar(false))
-                body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#f8fafc; margin:0; padding:16px;" {
-                    div style="max-width: 860px; margin: 0 auto;" {
-                        a href="/posts" style="color:#0ea5e9; text-decoration:none;" { "← Back to posts" }
-                        div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-top:12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);" {
-                            h2 style="margin:0 0 10px 0;" { (post.title) }
-                            p style="margin:4px 0; color:#334155;" { strong { "Location: " } (post.location) }
-                            p style="margin:4px 0; color:#334155;" { strong { "Price: " } (post.price) " /week" }
-                            p style="margin:4px 0; color:#334155;" { strong { "Minimum stay: " } (post.min_stay_value) " " (post.min_stay_unit) }
-                            p style="margin:4px 0; color:#334155;" { strong { "Available from: " } (post.available_date) }
-                            p style="margin:4px 0; color:#334155;" { strong { "Pallet spaces available: " } (post.spaces_available) }
-                            @if !post.notes.is_empty() {
-                                div style="margin-top:8px; color:#475569; white-space:pre-wrap;" { (post.notes) }
-                            }
-                            @if current_uid == Some(post.user_id) {
-                                a href=(format!("/posts/{}/edit", id)) style="display:inline-block; margin-top:10px; background:#64748b; color:#fff; border:none; border-radius:8px; padding:6px 10px; text-decoration:none;" { "Edit" }
-                            }
-                        }
-                    }
-                }
-            };
-            (StatusCode::OK, contents)
+            let is_auth = auth.user.is_some();
+            (StatusCode::OK, post_show_page_view(is_auth, id, &post, current_uid).await)
         }
 
         pub async fn edit_post_page(
@@ -486,43 +428,8 @@ mod control {
             if current_uid != Some(post.user_id) {
                 return (StatusCode::FORBIDDEN, crate::views::utils::page_not_found());
             }
-            let contents = maud::html! {
-                (crate::views::utils::default_header("Pallet Spaces: Edit Post"))
-                (crate::views::utils::title_and_navbar(false))
-                body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#f8fafc; margin:0; padding:16px;" {
-                    h2 style="max-width: 860px; margin: 8px auto 16px; font-size: 1.5rem;" { "Edit Post" }
-                    form method="POST" action=(format!("/posts/{}", id)) style="max-width: 860px; margin: 0 auto; background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px; display:grid; grid-template-columns: 1fr; gap:10px;" {
-                        label for="title" { "Title:" }
-                        input type="text" id="title" name="title" value=(post.title) {}
-
-                        label for="location" { "Location:" }
-                        input type="text" id="location" name="location" value=(post.location) {}
-
-                        label for="price" { "Price (per week):" }
-                        input type="number" id="price" name="price" min="0" step="1" value=(post.price) {}
-
-                        label for="spaces_available" { "Pallet spaces available:" }
-                        input type="number" id="spaces_available" name="spaces_available" min="1" step="1" value=(post.spaces_available) {}
-
-                        label for="min_stay_value" { "Minimum Stay:" }
-                        input type="number" id="min_stay_value" name="min_stay_value" min="1" value=(post.min_stay_value) {}
-                        label for="min_stay_unit" { "Unit" }
-                        select id="min_stay_unit" name="min_stay_unit" {
-                            option value="weeks" selected[post.min_stay_unit == "weeks"] { "Weeks" }
-                            option value="months" selected[post.min_stay_unit == "months"] { "Months" }
-                        }
-
-                        label for="available_date" { "Available Date:" }
-                        input type="date" id="available_date" name="available_date" value=(post.available_date) {}
-
-                        label for="notes" { "Notes:" }
-                        textarea id="notes" name="notes" { (post.notes) }
-
-                        div { button type="submit" style="background:#0ea5e9; color:#fff; border:none; border-radius:8px; padding:8px 12px; cursor:pointer;" { "Save" } }
-                    }
-                }
-            };
-            (StatusCode::OK, contents)
+            let is_auth = auth.user.is_some();
+            (StatusCode::OK, post_form_page(is_auth, "Edit Post", &format!("/posts/{}", id), &post).await)
         }
 
         pub async fn edit_post_request(
@@ -530,7 +437,7 @@ mod control {
             auth: AuthSession<crate::model::database::Database>,
             axum::extract::Path(id): axum::extract::Path<u32>,
             Form(payload): Form<EditPost>,
-        ) -> (StatusCode, Markup) {
+        ) -> Response {
             let current_uid = auth.user.as_ref().map(|u| u.id() as i64).unwrap_or(-1);
             // Ensure only owner can update
             let res = sqlx::query(
@@ -551,10 +458,45 @@ mod control {
 
             match res {
                 Ok(r) if r.rows_affected() > 0 => {
-                    // Redirect back to posts list (simple success page for now)
-                    (StatusCode::OK, maud::html!{ p { "Post updated." }})
+                    Redirect::to(&format!("/posts/{}", id)).into_response()
                 }
-                _ => (StatusCode::FORBIDDEN, crate::views::utils::page_not_found()),
+                _ => (StatusCode::FORBIDDEN, crate::views::utils::page_not_found()).into_response(),
+            }
+        }
+
+        pub async fn toggle_visibility(
+            State(state): State<AppState>,
+            auth: AuthSession<crate::model::database::Database>,
+            axum::extract::Path(id): axum::extract::Path<u32>,
+        ) -> Response {
+            let current_uid = auth.user.as_ref().map(|u| u.id() as i64).unwrap_or(-1);
+            let res = sqlx::query(
+                "UPDATE Posts SET visible = CASE visible WHEN 1 THEN 0 ELSE 1 END WHERE id=? AND user_id=?",
+            )
+            .bind(id)
+            .bind(current_uid)
+            .execute(&state.pool.0)
+            .await;
+            match res {
+                Ok(_) => Redirect::to("/me").into_response(),
+                Err(_) => (StatusCode::FORBIDDEN, crate::views::utils::page_not_found()).into_response(),
+            }
+        }
+
+        pub async fn delete_post(
+            State(state): State<AppState>,
+            auth: AuthSession<crate::model::database::Database>,
+            axum::extract::Path(id): axum::extract::Path<u32>,
+        ) -> Response {
+            let current_uid = auth.user.as_ref().map(|u| u.id() as i64).unwrap_or(-1);
+            let res = sqlx::query("DELETE FROM Posts WHERE id=? AND user_id=?")
+                .bind(id)
+                .bind(current_uid)
+                .execute(&state.pool.0)
+                .await;
+            match res {
+                Ok(_) => Redirect::to("/me").into_response(),
+                Err(_) => (StatusCode::FORBIDDEN, crate::views::utils::page_not_found()).into_response(),
             }
         }
     }
@@ -565,46 +507,11 @@ mod view {
 
     use crate::views::utils::{default_header, title_and_navbar};
 
-    pub async fn create_post_page() -> Markup {
-        html! {
-            (default_header("Pallet Spaces: New Post"))
-            (title_and_navbar(false))
-            body {
-                form id="postForm" action="new_post" method="POST" hx-post="/new_post" {
-                    label for="title" { "Title:" }
-                    input type="text" id="title" name="title" {}
-                    br {}
-
-                    label for="location" { "Location:" }
-                    input type="text" id="location" name="location" {}
-                    br {}
-
-                    label for="price" { "Price (per week):" }
-                    input type="number" id="price" name="price" min="0" step="1" {}
-                    br {}
-
-                    label for="spaces_available" { "Pallet spaces available:" }
-                    input type="number" id="spaces_available" name="spaces_available" min="1" step="1" {}
-                    br {}
-
-                    label for="min_stay_value" { "Minimum Stay:" }
-                    input type="number" id="min_stay_value" name="min_stay_value" min="1" {}
-                    select id="min_stay_unit" name="min_stay_unit" {
-                        option value="weeks" { "Weeks" }
-                        option value="months" { "Months" }
-                    }
-                    br {}
-
-                    label for="available_date" { "Available Date:" }
-                    input type="date" id="available_date" name="available_date" {}
-                    br {}
-
-                    label for="notes" { "Notes:" }
-                    textarea id="notes" name="notes" {} "" 
-                    br {}
-                    button type="submit" { "Create Post" }
-                }
-            }
+    fn format_date_display(s: &str) -> String {
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+            d.format("%d %b %Y").to_string()
+        } else {
+            s.to_string()
         }
     }
 
@@ -632,6 +539,124 @@ mod view {
                 }
                 p {
                     "Please try again"
+                }
+            }
+        }
+    }
+
+    // Index page for posts with filters and list
+    pub async fn posts_index_page(
+        is_auth: bool,
+        filter: &super::control::PostsFilter,
+        posts: &[super::Post],
+        current_uid: Option<i64>,
+    ) -> Markup {
+        html! {
+            (default_header("Pallet Spaces: Posts"))
+            (title_and_navbar(is_auth))
+            body class="page" {
+                div class="container" {
+                    div class="cluster" {
+                        h2 { "Available Spaces" }
+                        @if is_auth { a class="btn btn--success" href="/new_post" { "New Post" } }
+                    }
+                }
+                form class="container card form" method="GET" action="/posts" {
+                    div class="grid grid--2" {
+                        div class="field" { label class="label" for="title" { "Title" } input class="input" type="text" id="title" name="title" value=(filter.title.clone().unwrap_or_default()) {} }
+                        div class="field" { label class="label" for="location" { "Location" } input class="input" type="text" id="location" name="location" value=(filter.location.clone().unwrap_or_default()) {} }
+                        div class="field" { label class="label" for="max_price" { "Max Price/wk" } input class="input" type="number" id="max_price" name="max_price" min="0" step="1" value=(filter.max_price.clone().unwrap_or_default()) {} }
+                        div class="field" { label class="label" for="min_spaces_available" { "Min Spaces" } input class="input" type="number" id="min_spaces_available" name="min_spaces_available" min="0" step="1" value=(filter.min_spaces_available.clone().unwrap_or_default()) {} }
+                        div class="field" { label class="label" for="min_stay_value" { "Min Stay" } input class="input" type="number" id="min_stay_value" name="min_stay_value" min="0" step="1" value=(filter.min_stay_value.clone().unwrap_or_default()) {} }
+                        div class="field" { label class="label" for="min_stay_unit" { "Unit" } select class="select" id="min_stay_unit" name="min_stay_unit" {
+                            @let unit = filter.min_stay_unit.clone().unwrap_or_else(|| "weeks".to_string());
+                            option value="" selected[unit == ""] { "Any" }
+                            option value="weeks" selected[unit == "weeks"] { "Weeks" }
+                            option value="months" selected[unit == "months"] { "Months" }
+                        } }
+                        div class="field" style="grid-column: 1 / -1;" { label class="label" for="available_from" { "Available From" } input class="input" type="date" id="available_from" name="available_from" value=(filter.available_from.clone().unwrap_or_default()) {} }
+                        div style="grid-column: 1 / -1; text-align: right;" { button class="btn btn--primary" type="submit" { "Filter" } a class="btn btn--ghost" href="/posts" { "Reset" } }
+                    }
+                }
+                @if posts.is_empty() {
+                    div class="container" { p class="text-muted" { "No posts yet." } }
+                } @else {
+                    div class="container list" id="posts" {
+                        @for p in posts {
+                            div class="card post-card" {
+                                @match p.id_raw() {
+                                    Some(id) => h3 { a href=(format!("/posts/{}", id)) { (p.title) } },
+                                    None => h3 { (p.title) }
+                                }
+                                p class="text-muted" { strong { "Location: " } (p.location) }
+                                p class="text-muted" { strong { "Price: " } (p.price) " /week" }
+                                p class="text-muted" { strong { "Minimum stay: " } (p.min_stay_value) " " (p.min_stay_unit) }
+                                @let date_disp = format_date_display(&p.available_date);
+                                p class="text-muted" { strong { "Available from: " } (date_disp) }
+                                p class="text-muted" { strong { "Pallet spaces available: " } (p.spaces_available) }
+                                @if !p.notes.is_empty() { p class="mt-2 text-muted" { (p.notes) } }
+                                @if current_uid == Some(p.user_id) {
+                                    @match p.id_raw() {
+                                        Some(id) => div class="mt-2" { a class="btn btn--secondary" href=(format!("/posts/{}/edit", id)) { "Edit" } },
+                                        None => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Show a single post
+    pub async fn post_show_page_view(
+        is_auth: bool,
+        id: u32,
+        post: &super::Post,
+        current_uid: Option<i64>,
+    ) -> Markup {
+        html! {
+            (default_header("Pallet Spaces: Post"))
+            (title_and_navbar(is_auth))
+            body class="page" {
+                div class="container" {
+                    a href="/posts" { "← Back to posts" }
+                    div class="card mt-3" {
+                        h2 { (post.title) }
+                        p class="text-muted" { strong { "Location: " } (post.location) }
+                        p class="text-muted" { strong { "Price: " } (post.price) " /week" }
+                        p class="text-muted" { strong { "Minimum stay: " } (post.min_stay_value) " " (post.min_stay_unit) }
+                        @let date_disp = format_date_display(&post.available_date);
+                        p class="text-muted" { strong { "Available from: " } (date_disp) }
+                        p class="text-muted" { strong { "Pallet spaces available: " } (post.spaces_available) }
+                        @if !post.notes.is_empty() { div class="mt-2 text-muted" { (post.notes) } }
+                        @if current_uid == Some(post.user_id) {
+                            a class="btn btn--secondary mt-2" href=(format!("/posts/{}/edit", id)) { "Edit" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Shared post form page (used for create and edit)
+    pub async fn post_form_page(is_auth: bool, heading: &str, action: &str, post: &super::Post) -> Markup {
+        html! {
+            (default_header("Pallet Spaces: Post"))
+            (title_and_navbar(is_auth))
+            body class="page" {
+                div class="container" { h2 { (heading) } }
+                form class="container card form" method="POST" action=(action) {
+                    div class="field" { label class="label" for="title" { "Title:" } input class="input" type="text" id="title" name="title" value=(post.title) {} }
+                    div class="field" { label class="label" for="location" { "Location:" } input class="input" type="text" id="location" name="location" value=(post.location) {} }
+                    div class="field" { label class="label" for="price" { "Price (per week):" } input class="input" type="number" id="price" name="price" min="0" step="1" value=(post.price) {} }
+                    div class="field" { label class="label" for="spaces_available" { "Pallet spaces available:" } input class="input" type="number" id="spaces_available" name="spaces_available" min="1" step="1" value=(post.spaces_available) {} }
+                    div class="field" { label class="label" for="min_stay_value" { "Minimum stay value:" } input class="input" type="number" id="min_stay_value" name="min_stay_value" min="0" step="1" value=(post.min_stay_value) {} }
+                    div class="field" { label class="label" for="min_stay_unit" { "Minimum stay unit:" } select class="select" id="min_stay_unit" name="min_stay_unit" { option value="weeks" selected[post.min_stay_unit == "weeks"] { "Weeks" } option value="months" selected[post.min_stay_unit == "months"] { "Months" } } }
+                    div class="field" { label class="label" for="available_date" { "Available Date:" } input class="input" type="date" id="available_date" name="available_date" value=(post.available_date) {} }
+                    div class="field" { label class="label" for="notes" { "Notes:" } textarea class="textarea" id="notes" name="notes" { (post.notes) } }
+                    div { button class="btn btn--primary" type="submit" { "Save" } }
                 }
             }
         }

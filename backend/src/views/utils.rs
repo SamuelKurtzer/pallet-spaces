@@ -5,6 +5,8 @@ pub fn default_header(page_name: &str) -> Markup {
         (DOCTYPE)
         head {
             title { (page_name.to_owned()) }
+            meta name="viewport" content="width=device-width, initial-scale=1" {}
+            link rel="stylesheet" href="/public/css/main.css" {}
             script src="/public/js/htmx_2.0.4/htmx.min.js" type="text/javascript" {}
         }
     }
@@ -12,17 +14,23 @@ pub fn default_header(page_name: &str) -> Markup {
 
 pub fn title_and_navbar(is_auth: bool) -> Markup {
     html! {
-        h1 { "Pallet Spaces" }
-        ul {
-            li { a href="/" { "Home" }}
-            li { a href="/posts" { "Posts" }}
-            @if !is_auth {
-                li { a href="/signup" { "Signup" }}
-                li { a href="/login" { "Login" }}
-            } @else {
-                li { a href="/me" { "My Account" }}
-                li { a href="/users" { "Users" }}
-                li { form action="/logout" method="POST" { button type="submit" { "Logout" } } }
+        header class="site-header" {
+            div class="container" {
+                h1 { "Pallet Spaces" }
+                nav {
+                    ul class="nav" {
+                        li { a href="/" { "Home" }}
+                        li { a href="/posts" { "Posts" }}
+                        @if !is_auth {
+                            li { a href="/signup" { "Signup" }}
+                            li { a href="/login" { "Login" }}
+                        } @else {
+                            li { a href="/me" { "My Account" }}
+                            li { a href="/users" { "Users" }}
+                            li { form action="/logout" method="POST" { button class="btn btn--ghost" type="submit" { "Logout" } } }
+                        }
+                    }
+                }
             }
         }
     }
