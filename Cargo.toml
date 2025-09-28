@@ -22,6 +22,32 @@ tower-http = { version = "0.6.2", features = ["full"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+urlencoding = "2.1.3"
+dotenvy = "0.15"
+
+[features]
+default = []
+# Enable real Shopify HTTP integration (requires network + reqwest)
+shopify = ["dep:reqwest"]
+# Enable real Stripe HTTP integration via async-stripe
+stripe = ["dep:async-stripe"]
+# Opt-in live Stripe tests (use with `--features stripe,stripe_live`)
+stripe_live = []
+# Enable Maps/geocoding integration (requires reqwest). Off by default.
+maps = ["dep:reqwest"]
+maps_live = []
+
+[dependencies.reqwest]
+version = "0.12"
+default-features = false
+features = ["json", "rustls-tls"]
+optional = true
+
+[dependencies.async-stripe]
+version = "0.38"
+optional = true
+features = ["runtime-tokio-hyper-rustls", "full"]
 
 [dev-dependencies]
 tower = "0.5"
+nanoid = "0.4"

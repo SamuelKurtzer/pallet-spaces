@@ -1,16 +1,8 @@
-- [X] signup page
-- [] input validation
-- [] front page
-- [] signup backend
-    - [X] auth
-    - [] Login Screen
-- [] Add in newtypes
-    - [] User types
-    - [] Post types
-- [] database managment
 - [] docker for deployment
-- [] example market page (Dummy data)
-\n+Upcoming UI improvements
+- [] split signup and login buttons off from the nav to sit on the right
+- [] replace them with account and logoff buttons
+- [] make the logoff button match with the other nav bar components
+- [] make user list admin only
 - [] Mark active nav links using `aria-current="page"` per route
 - [] Add `.table` component for tabular data
 - [] Add dark-mode tokens with `prefers-color-scheme: dark`

@@ -41,4 +41,14 @@ Would also be a great place for targeted ads.
 
 have a general arbitration clause in TOS, but dont be a dick about it.
 
+## Stripe Customers
 
+- Feature flags: build with `--features stripe` to enable real Stripe HTTP calls. Use `--features stripe,stripe_live` for live tests.
+- Env vars:
+  - `STRIPE_SECRET_KEY`: required to create/update Stripe Customers.
+  - `STRIPE_WEBHOOK_SECRET`: optional; when set, `/webhooks/stripe` logs `customer.updated` events.
+  - `ADMIN_EMAIL`: email of the admin account allowed to backfill customers.
+- Behavior:
+  - On signup and first login, the app ensures a Stripe Customer exists for the user and stores `users.stripe_customer_id`.
+  - Email/name updates will be pushed to Stripe when a profile update endpoint is added.
+  - Admin backfill endpoint: `POST /admin/stripe/backfill-customers?limit=200&cursor=<last_id>` processes users missing a customer; requires a logged-in session with `email == ADMIN_EMAIL`.

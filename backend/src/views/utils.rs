@@ -16,18 +16,30 @@ pub fn title_and_navbar(is_auth: bool) -> Markup {
     html! {
         header class="site-header" {
             div class="container" {
-                h1 { "Pallet Spaces" }
-                nav {
-                    ul class="nav" {
-                        li { a href="/" { "Home" }}
-                        li { a href="/posts" { "Posts" }}
-                        @if !is_auth {
-                            li { a href="/signup" { "Signup" }}
-                            li { a href="/login" { "Login" }}
-                        } @else {
-                            li { a href="/me" { "My Account" }}
-                            li { a href="/users" { "Users" }}
-                            li { form action="/logout" method="POST" { button class="btn btn--ghost" type="submit" { "Logout" } } }
+                div class="cluster" {
+                    // Left: brand + primary nav
+                    div class="cluster" {
+                        h1 { "Pallet Spaces" }
+                        nav {
+                            ul class="nav" {
+                                li { a href="/" { "Home" }}
+                                li { a href="/posts" { "Posts" }}
+                                @if is_auth {
+                                    li { a href="/orders" { "Orders" }}
+                                }
+                            }
+                        }
+                    }
+                    // Right: auth actions
+                    nav {
+                        ul class="nav" {
+                            @if !is_auth {
+                                li { a class="btn btn--secondary" href="/signup" { "Signup" }}
+                                li { a class="btn btn--primary" href="/login" { "Login" }}
+                            } @else {
+                                li { a class="btn btn--secondary" href="/me" { "Account" }}
+                                li { form action="/logout" method="POST" { button class="btn btn--secondary" type="submit" { "Log off" } } }
+                            }
                         }
                     }
                 }

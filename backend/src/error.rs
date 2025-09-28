@@ -3,6 +3,7 @@ use std::{fmt::Display, str::Utf8Error};
 use tokio::task::JoinError;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Error {
     Database(String),
     SocketBind(String),

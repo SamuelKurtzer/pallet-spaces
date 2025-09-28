@@ -23,6 +23,16 @@ impl Database {
             Err(_) => Err(Error::Database("Failed to create database".into())),
         }
     }
+
+    pub async fn new_with_filename(path: &str) -> Result<Self, Error> {
+        let opt = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true);
+        match sqlx::sqlite::SqlitePool::connect_with(opt).await {
+            Ok(pool) => Ok(Database(pool)),
+            Err(_) => Err(Error::Database("Failed to create database".into())),
+        }
+    }
 }
 
 impl Deref for Database {
@@ -56,7 +66,9 @@ where
     async fn initialise_table(pool: Database) -> Result<Database, Error>;
     async fn create(self, pool: &Database) -> Result<&Database, Error>;
     async fn retrieve(id: Self::Id, pool: &Database) -> Result<Self, Error>;
+    #[allow(dead_code)]
     async fn update(id: Self::Id, pool: &Database) -> Result<&Database, Error>;
+    #[allow(dead_code)]
     async fn delete(id: Self::Id, pool: &Database) -> Result<&Database, Error>;
 }
 
